@@ -30,6 +30,32 @@ public class RunnerConfigTests : IDisposable
     }
 
     [Fact]
+    public async Task Corrupt_config_exits_2_with_message()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "config.json"), "{ not json");
+        var err = new StringWriter();
+        var old = Console.Error;
+        Console.SetError(err);
+        try
+        {
+            Assert.Equal(2, await Iceghost.Runner.Program.Main(["run", "--state-dir", _dir]));
+        }
+        finally { Console.SetError(old); }
+        Assert.Contains("config.json is invalid: " + Path.Combine(_dir, "config.json"), err.ToString());
+    }
+
+    [Fact]
+    public void Save_replaces_stale_tmp_and_leaves_no_tmp()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "config.json.tmp"), "stale");
+        RunnerConfig.Save(_dir, new RunnerConfig("https://x", "t", new Dictionary<Runtime, string[]>()));
+        Assert.False(File.Exists(Path.Combine(_dir, "config.json.tmp")));
+        Assert.Equal("t", RunnerConfig.Load(_dir)!.Token);
+    }
+
+    [Fact]
     public void Load_missing_returns_null()
     {
         Assert.Null(RunnerConfig.Load(_dir));

@@ -34,9 +34,12 @@ public record RunnerConfig(string Server, string Token, Dictionary<Runtime, stri
         var path = Path.Combine(dir, FileName);
         // write-then-move so a crash mid-write never leaves a torn config.json
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(c, IceJson.Options));
+        File.Delete(tmp); // a stale tmp would keep its old mode
+        var opts = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
         if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            opts.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite; // 0600 from creation
+        using (var fs = new FileStream(tmp, opts))
+            fs.Write(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(c, IceJson.Options)));
         File.Move(tmp, path, overwrite: true);
     }
 }

@@ -21,19 +21,24 @@ public static class Program
         var token = flags.GetValueOrDefault("--token");
 
         RunnerConfig? cfg;
-        if (server is not null && token is not null)
-        {
-            cfg = (RunnerConfig.Load(dir) ?? new RunnerConfig(server, token, new())) with { Server = server, Token = token };
-            RunnerConfig.Save(dir, cfg);
-        }
-        else
+        try
         {
             cfg = RunnerConfig.Load(dir);
-            if (cfg is null)
-            {
-                Console.Error.WriteLine("run with --server and --token first");
-                return 2;
-            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            Console.Error.WriteLine($"config.json is invalid: {Path.Combine(dir, "config.json")}");
+            return 2;
+        }
+        if (server is not null && token is not null)
+        {
+            cfg = (cfg ?? new RunnerConfig(server, token, new())) with { Server = server, Token = token };
+            RunnerConfig.Save(dir, cfg);
+        }
+        else if (cfg is null)
+        {
+            Console.Error.WriteLine("run with --server and --token first");
+            return 2;
         }
 
         var timeout = TimeSpan.FromMinutes(cfg.TimeoutMinutes);
