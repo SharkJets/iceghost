@@ -58,4 +58,13 @@ public class DeployFilesTests
         foreach (var rid in new[] { "linux-x64", "linux-arm64", "osx-x64", "osx-arm64", "win-x64", "win-arm64" })
             Assert.Contains(rid, text);
     }
+
+    [Fact]
+    public void Ci_builds_six_rids()
+    {
+        var text = Read(".github/workflows/ci.yml");
+        foreach (var rid in new[] { "linux-x64", "linux-arm64", "osx-x64", "osx-arm64", "win-x64", "win-arm64" })
+            Assert.Contains(rid, text);
+        Assert.Contains("dotnet test Iceghost.slnx", text);
+    }
 }

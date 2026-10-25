@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore Iceghost.slnx
+      - run: dotnet test Iceghost.slnx --no-restore
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web test
+      - run: pnpm --dir web build
+
+  runner:
+    needs: test
+    strategy:
+      matrix:
+        rid: [linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - shell: bash
+        run: |
+          dotnet publish src/Iceghost.Runner -c Release -r "${{ matrix.rid }}" --self-contained true -p:PublishSingleFile=true -o "out/${{ matrix.rid }}"
+          cd "out/${{ matrix.rid }}"
+          rm -f ./*.pdb
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            mv Iceghost.Runner.exe iceghost-runner.exe
+          else
+            mv Iceghost.Runner iceghost-runner
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iceghost-runner-${{ matrix.rid }}
+          path: out/${{ matrix.rid }}/iceghost-runner*
+          retention-days: 14
+          if-no-files-found: error
