@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Icon from './Icon.vue'
 import { api, Unauthorized, type SessionDetail, type MachineRow } from './api'
-import { ago, commandLabel, folder, isOffline } from './format'
+import { ago, agent, commandLabel, folder, isOffline, shortOs, stateOf } from './format'
 import { usePoll, ticker } from './useNow'
 import { guard } from './route'
 
@@ -14,17 +15,22 @@ const sending = ref(false)
 const loadErr = ref(false)
 const now = ticker()
 const ta = ref<HTMLTextAreaElement | null>(null)
+const body = ref<HTMLElement | null>(null)
 const seen = ref<string | null | undefined>(undefined)
+const os = ref<string | null>(null)
 const url = `/api/sessions/${props.machineId}/${encodeURIComponent(props.sessionId)}`
 usePoll(async () => {
   try { d.value = await api<SessionDetail>(url); loadErr.value = false
-    seen.value = (await api<MachineRow[]>('/api/machines').catch(() => null))?.find(m => String(m.id) === props.machineId)?.lastSeen }
+    const m = (await api<MachineRow[]>('/api/machines').catch(() => null))?.find(m => String(m.id) === props.machineId)
+    seen.value = m?.lastSeen; os.value = m?.os ?? null }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else loadErr.value = true; throw e }
 }, 3000)
 
 const offline = computed(() => seen.value !== undefined && isOffline(seen.value, now.value))
 const cmds = computed(() => [...(d.value?.commands ?? [])].sort((a, b) => b.id - a.id))
 const tail = computed(() => [...(d.value?.tail ?? [])].reverse())
+const pending = (c: { status: string }) => c.status === 'queued' || c.status === 'delivered' || c.status === 'running'
+const copy = (t: string) => navigator.clipboard?.writeText(t)
 const tones = { normal: 'text-slate-400', busy: 'text-sky-400', warn: 'text-amber-400', bad: 'text-red-400' }
 const label = (c: SessionDetail['commands'][number]) => {
   const earlier = d.value!.commands.some(o => o.id < c.id && (o.status === 'queued' || o.status === 'delivered' || o.status === 'running'))
@@ -36,7 +42,7 @@ const send = guard(async () => {
   if (!t) return
   err.value = ''
   sending.value = true
-  try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url); window.scrollTo({ top: 0, behavior: 'smooth' }); ta.value?.focus() }
+  try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url); window.scrollTo({ top: 0, behavior: 'smooth' }); body.value?.scrollTo({ top: 0, behavior: 'smooth' }); ta.value?.focus() }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (1 to 20000 chars)' }
   finally { sending.value = false }
 })
@@ -47,38 +53,84 @@ const dismiss = guard(async (id: number) => {
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error ? e.message : 'Dismiss failed' }
 })
 </script>
+
 <template>
-  <div class="space-y-4">
-    <a href="#/" class="text-sm text-sky-400">&larr; Sessions</a>
-    <p v-if="!d && loadErr" class="text-red-400">Could not load session.</p>
+  <div class="mb-4"><a href="#/" class="inline-flex items-center gap-1 text-sm text-sky-400 hover:text-sky-300"><Icon name="back" />Back to Sessions</a>
+    <p v-if="!d && loadErr" class="mt-2 text-red-400">Could not load session.</p>
   </div>
   <div v-if="d" class="space-y-4">
-    <div>
-      <h1 class="font-semibold">{{ d.session.title ?? folder(d.session.cwd) }}</h1>
-      <div class="text-xs text-slate-500">{{ d.session.machine }} · {{ d.session.runtime }} · {{ d.session.state }} · {{ d.session.cwd }}</div>
-    </div>
-    <p v-if="offline" class="rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
-    <div>
-      <textarea ref="ta" v-model="text" rows="3" placeholder="Message (Ctrl/Cmd+Enter to send)" class="w-full rounded bg-slate-800 p-2"
-        @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send"></textarea>
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-red-400">{{ err }}</span>
-        <button class="rounded bg-sky-600 px-4 py-1" :disabled="sending || offline" @click="send">Send</button>
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <div class="min-w-0">
+        <h1 class="break-words text-2xl font-semibold">{{ d.session.title ?? folder(d.session.cwd) }}</h1>
+        <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-300">
+          <span class="flex items-center gap-1.5"><Icon name="monitor" />{{ d.session.machine }}</span>
+          <span v-if="os" class="text-slate-400">{{ shortOs(os) }}</span>
+          <span class="flex items-center gap-2"><span class="flex h-5 w-5 items-center justify-center rounded bg-slate-700 text-[11px] font-semibold">{{ agent(d.session.runtime).badge }}</span>{{ agent(d.session.runtime).name }}</span>
+          <span class="rounded-md border px-2 py-0.5 text-xs" :class="stateOf(d.session.state).pill">{{ stateOf(d.session.state).label }}</span>
+          <span class="flex min-w-0 items-center gap-1.5 text-slate-400"><Icon name="folder" /><span class="truncate">{{ d.session.cwd }}</span></span>
+        </div>
       </div>
+      <span class="text-xs text-slate-400">Last active {{ ago(d.session.lastActivity, now) }}</span>
     </div>
-    <div v-if="cmds.length">
-      <h2 class="mb-1 text-xs uppercase tracking-wide text-slate-400">Messages sent</h2>
-      <div v-for="c in cmds" :key="c.id" class="mb-1 rounded bg-slate-800 p-2 text-sm">
-        <div class="flex justify-between"><span class="whitespace-pre-wrap break-words">{{ c.text }}</span>
-          <span class="ml-2 shrink-0 text-xs" :class="tones[label(c).tone]">
-            <span v-if="label(c).tone === 'busy'" class="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-400 border-t-transparent align-middle"></span>{{ label(c).text }} · {{ ago(c.createdAt, now) }}
-            <button v-if="c.status === 'queued' || c.status === 'delivered' || c.status === 'running'" class="ml-2 text-xs text-slate-400 hover:text-red-400" @click="dismiss(c.id)">Dismiss</button></span></div>
-        <div v-if="c.output" class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-slate-400">{{ c.output }}</div>
+    <div class="grid gap-4 lg:grid-cols-3">
+      <section class="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/70 lg:col-span-2">
+        <div ref="body" class="max-h-[60vh] min-h-48 space-y-4 overflow-y-auto p-4">
+          <p v-if="!tail.length" class="text-sm text-slate-500">No messages yet.</p>
+          <div v-for="(e, i) in tail" :key="i" class="flex gap-3">
+            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">
+              <Icon v-if="e.role === 'user'" name="user" /><Icon v-else-if="e.role === 'tool'" name="chevron" /><template v-else>{{ agent(d.session.runtime).badge }}</template>
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="mb-1 flex items-baseline gap-2 text-xs"><span class="font-semibold text-slate-200">{{ e.role === 'user' ? 'You' : e.role === 'tool' ? 'Tool' : 'Agent' }}</span><span class="text-slate-500">{{ e.at ? ago(e.at, now) : '' }}</span></div>
+              <div v-if="e.role === 'tool'" class="whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 font-mono text-xs text-slate-300">{{ e.text }}</div>
+              <p v-else class="whitespace-pre-wrap break-words text-sm text-slate-200">{{ e.text }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="border-t border-slate-700/60 p-3">
+          <p v-if="offline" class="mb-2 rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
+          <div class="rounded-lg border border-slate-600 bg-slate-950/60 p-2">
+            <textarea ref="ta" v-model="text" rows="3" placeholder="Type a message to the agent..." class="w-full resize-none bg-transparent text-sm outline-none"
+              @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send"></textarea>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs text-slate-500">Ctrl+Enter to send</span>
+              <button class="flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-sm font-medium hover:bg-sky-500 disabled:opacity-50" :disabled="sending || offline" @click="send"><Icon name="send" />Send</button>
+            </div>
+          </div>
+          <p v-if="err" class="mt-1 text-sm text-red-400">{{ err }}</p>
+        </div>
+      </section>
+      <div class="min-w-0 space-y-4">
+        <section class="rounded-xl border border-slate-700/60 bg-slate-900/70 p-4">
+          <h2 class="font-semibold">Message Status</h2>
+          <p class="mb-3 text-xs text-slate-500">Shows the status of messages you've sent</p>
+          <p v-if="!cmds.length" class="text-sm text-slate-500">No messages sent.</p>
+          <div v-for="c in cmds" :key="c.id" class="border-t border-slate-700/50 py-2 text-sm first:border-t-0">
+            <div class="flex items-start justify-between gap-2">
+              <span class="min-w-0 break-words">{{ c.text.length > 80 ? c.text.slice(0, 80) + '...' : c.text }}</span>
+              <button v-if="pending(c)" class="shrink-0 rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-300 hover:text-red-400" @click="dismiss(c.id)">Dismiss</button>
+            </div>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
+              <span class="flex items-center gap-1" :class="tones[label(c).tone]">
+                <span v-if="label(c).tone === 'busy'" class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></span>{{ label(c).text }}</span>
+              <span class="text-slate-500">{{ ago(c.createdAt, now) }}</span>
+            </div>
+            <div v-if="c.output" :title="c.output" class="mt-1 line-clamp-3 whitespace-pre-wrap break-words font-mono text-xs text-slate-400">{{ c.output }}</div>
+          </div>
+        </section>
+        <section class="rounded-xl border border-slate-700/60 bg-slate-900/70 p-4">
+          <h2 class="mb-3 font-semibold">Session Info</h2>
+          <dl class="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
+            <dt class="text-slate-500">Project</dt><dd class="truncate" :title="d.session.cwd">{{ d.session.cwd }}</dd>
+            <dt class="text-slate-500">Machine</dt><dd class="truncate">{{ d.session.machine }}<template v-if="os"> ({{ shortOs(os) }})</template></dd>
+            <dt class="text-slate-500">Agent</dt><dd>{{ agent(d.session.runtime).name }}</dd>
+            <dt class="text-slate-500">Session ID</dt>
+            <dd class="flex items-center gap-2"><span class="truncate font-mono text-xs" :title="d.session.sessionId">{{ d.session.sessionId }}</span>
+              <button class="shrink-0 text-slate-400 hover:text-slate-200" title="Copy session id" @click="copy(d.session.sessionId)"><Icon name="copy" /></button></dd>
+            <dt class="text-slate-500">Status</dt><dd :class="stateOf(d.session.state).text">{{ stateOf(d.session.state).label }}</dd>
+          </dl>
+        </section>
       </div>
-    </div>
-    <div class="space-y-2">
-      <div v-for="(e, i) in tail" :key="i" class="max-w-[90%] whitespace-pre-wrap break-words rounded-lg p-2 text-sm"
-        :class="e.role === 'user' ? 'ml-auto bg-sky-800' : e.role === 'tool' ? 'bg-slate-800 font-mono text-xs text-slate-400' : 'bg-slate-700'">{{ e.text }}</div>
     </div>
   </div>
 </template>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, commandLabel, isOffline } from './format'
+import { ago, agent, commandLabel, isOffline, shortOs, splitAction } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -38,4 +38,21 @@ it('isOffline', () => {
   expect(isOffline(null, now)).toBe(true)
   expect(isOffline('2026-10-25T10:02:00Z', now)).toBe(true)
   expect(isOffline('2026-10-25T10:04:30Z', now)).toBe(false)
+})
+
+it('shortOs', () => {
+  expect(shortOs('Microsoft Windows 10.0.26200')).toBe('Windows')
+  expect(shortOs('Darwin 23.4.0')).toBe('macOS')
+  expect(shortOs('macOS 14.4')).toBe('macOS')
+  expect(shortOs('Ubuntu 22.04.3 LTS')).toBe('Ubuntu 22.04')
+  expect(shortOs('Linux 5.15.0-generic')).toBe('Linux')
+  expect(shortOs(null)).toBe('-')
+})
+
+it('agent and splitAction', () => {
+  expect(agent('claude')).toEqual({ badge: 'C', name: 'Claude Code' })
+  expect(agent('pi').badge).toBe('π')
+  expect(agent('zed')).toEqual({ badge: 'Z', name: 'zed' })
+  expect(splitAction('Bash: dotnet test: x')).toEqual({ verb: 'Bash', arg: 'dotnet test: x' })
+  expect(splitAction('thinking')).toEqual({ verb: '', arg: 'thinking' })
 })
