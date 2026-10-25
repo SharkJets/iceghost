@@ -31,7 +31,8 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
     private const int CaptureLimit = 1_048_576;
     private static readonly UTF8Encoding Utf8 = new(false);
     private static readonly Regex SessionIdRx = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z", RegexOptions.CultureInvariant);
-    private static readonly char[] ShellMeta = ['"', '&', '|', '<', '>', '^', '%', '\n', '\r'];
+    private static readonly char[] ShellMeta = ['"', '&', '|', '<', '>', '^', '%', '!', '(', ')', '\n', '\r', '\0'];
+    public static bool HasShellMeta(string a) => a.IndexOfAny(ShellMeta) >= 0;
 
     /// <summary>
     /// Resolves an executable name via PATH (+ PATHEXT on Windows, .exe first). Returns null when not found.
@@ -48,6 +49,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
             : (pathVar ?? Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var d in dirs)
         {
+            if (d.Length > 0 && !Path.IsPathRooted(d)) continue; // relative PATH entries would resolve against the (untrusted) session cwd inside cmd.exe
             var b = d.Length == 0 ? exe : Path.Combine(d, exe);
             if (Path.HasExtension(b) && File.Exists(b)) return b;
             foreach (var x in exts) if (File.Exists(b + x)) return b + x;
@@ -111,9 +113,9 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
         var args = Args(cmd.SessionId);
         if (OperatingSystem.IsWindows() && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
         {
-            if (extraArgs.Any(a => a.IndexOfAny(ShellMeta) >= 0)) return new(false, "extra args contain shell metacharacters");
+            if (extraArgs.Any(HasShellMeta)) return new(false, "extra args contain shell metacharacters");
             psi.FileName = "cmd.exe";
-            psi.Arguments = $"/d /s /c \"{Quote(resolved)} {string.Join(' ', args.Select(Quote))}\"";
+            psi.Arguments = $"/d /s /c \"\"{resolved}\" {string.Join(' ', args.Select(Quote))}\"";
         }
         else
         {

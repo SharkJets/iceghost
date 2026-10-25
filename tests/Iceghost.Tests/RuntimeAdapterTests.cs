@@ -71,6 +71,25 @@ public sealed class RuntimeAdapterTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [InlineData("a&b"), InlineData("a|b"), InlineData("a^b"), InlineData("%PATH%"), InlineData("!x!"), InlineData("(a)"), InlineData("a\"b"), InlineData("a\nb")]
+    public void Shell_metacharacters_rejected(string arg) => Assert.True(ProcessAdapter.HasShellMeta(arg));
+
+    [Fact]
+    public void Relative_path_entries_are_ignored()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var old = Directory.GetCurrentDirectory();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "evil.cmd"), "@echo x\r\n");
+            Directory.SetCurrentDirectory(dir);
+            Assert.Null(ProcessAdapter.ResolveExecutable("evil", "."));
+        }
+        finally { Directory.SetCurrentDirectory(old); Directory.Delete(dir, true); }
+    }
+
     private static async Task<CommandResult> FailingStdout(bool codex, string stdout)
     {
         if (!OperatingSystem.IsWindows()) return new(false, "unknown input item type");
