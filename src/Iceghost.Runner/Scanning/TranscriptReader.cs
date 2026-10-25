@@ -54,7 +54,7 @@ public static class TranscriptReader
             catch (JsonException) { } // torn or garbage line
         }
         if (a.Id is null) return null;
-        return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? (runtime == Runtime.Claude ? null : a.FirstUser),
+        return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? a.FirstUser,
             a.Last, a.Ended, a.Pending.Count > 0, a.Tail);
     }
 

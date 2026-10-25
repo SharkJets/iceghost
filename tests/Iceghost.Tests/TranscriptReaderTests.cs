@@ -18,7 +18,7 @@ public class TranscriptReaderTests
         Assert.Equal(Runtime.Claude, s.Runtime);
         Assert.Equal("s1", s.SessionId);
         Assert.Equal("C:\\p", s.Cwd);
-        Assert.Null(s.Title);
+        Assert.Equal("fix it", s.Title);
         Assert.Equal(DateTimeOffset.Parse("2026-10-25T10:01:00Z"), s.LastActivity);
         Assert.True(s.TurnEnded);
         Assert.False(s.PendingTool);
@@ -100,6 +100,13 @@ public class TranscriptReaderTests
     {
         var s = TranscriptReader.Read(Runtime.Claude, [CU("hi", "2026-10-25T10:00:00Z"), """{"type":"ai-title","aiTitle":"Fix login"}"""])!;
         Assert.Equal("Fix login", s.Title);
+    }
+
+    [Fact]
+    public void Claude_title_falls_back_to_first_user_text()
+    {
+        var s = TranscriptReader.Read(Runtime.Claude, [CU("fix it", "2026-10-25T10:00:00Z")])!;
+        Assert.Equal("fix it", s.Title);
     }
 
     static List<string> CodexLines(bool complete)
