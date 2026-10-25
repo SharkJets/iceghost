@@ -139,4 +139,86 @@ public class TranscriptReaderTests
         lines.Add("""{"timestamp":"2026-10-25T10:00:05Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"x"}}""");
         Assert.False(TranscriptReader.Read(Runtime.Codex, lines)!.PendingTool);
     }
+
+    [Fact]
+    public void Claude_harness_user_lines_skipped()
+    {
+        string[] lines =
+        [
+            CU("fix it", "2026-10-25T10:00:00Z"), CA("Done.", "2026-10-25T10:01:00Z"),
+            """{"type":"user","isMeta":true,"sessionId":"s1","timestamp":"2026-10-25T10:02:00Z","message":{"role":"user","content":"caveat"}}""",
+            CU("<command-name>/exit</command-name>", "2026-10-25T10:02:01Z"),
+            CU("<local-command-stdout>bye</local-command-stdout>", "2026-10-25T10:02:02Z"),
+            """{"type":"user","sessionId":"s1","timestamp":"2026-10-25T10:02:03Z","message":{"role":"user","content":[{"type":"text","text":"<command-message>x</command-message>"}]}}""",
+            """{"type":"user","isCompactSummary":true,"sessionId":"s1","timestamp":"2026-10-25T10:02:04Z","message":{"role":"user","content":"summary"}}""",
+        ];
+        var s = TranscriptReader.Read(Runtime.Claude, lines)!;
+        Assert.True(s.TurnEnded);
+        Assert.Equal(["user:fix it", "assistant:Done."], s.Tail.Select(e => e.Role + ":" + e.Text));
+    }
+
+    [Fact]
+    public void Codex_synthetic_user_messages_skipped()
+    {
+        var lines = CodexLines(true);
+        lines.Insert(1, """{"timestamp":"2026-10-25T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>x</user_instructions>"}]}}""");
+        lines.Insert(1, """{"timestamp":"2026-10-25T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>x</environment_context>"}]}}""");
+        lines.Add("""{"timestamp":"2026-10-25T10:00:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>y</environment_context>"}]}}""");
+        var s = TranscriptReader.Read(Runtime.Codex, lines)!;
+        Assert.Equal("do it", s.Title);
+        Assert.True(s.TurnEnded);
+        Assert.Equal(["user:do it", "assistant:ok"], s.Tail.Select(e => e.Role + ":" + e.Text));
+    }
+
+    [Fact]
+    public void Codex_task_complete_error_shown()
+    {
+        var lines = CodexLines(false);
+        lines.Add("""{"timestamp":"2026-10-25T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":null,"error":{"message":"quota exceeded"}}}""");
+        var s = TranscriptReader.Read(Runtime.Codex, lines)!;
+        Assert.True(s.TurnEnded);
+        Assert.Equal("assistant:error: quota exceeded", s.Tail[^1].Role + ":" + s.Tail[^1].Text);
+    }
+
+    [Fact]
+    public void Pi_title_falls_back_to_first_user_text()
+    {
+        string[] lines =
+        [
+            """{"type":"session","id":"p1","cwd":"/w","timestamp":"2026-10-25T10:00:00Z"}""",
+            $$$"""{"type":"message","timestamp":"2026-10-25T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"{{{new string('y', 200)}}}"}]}}""",
+        ];
+        var t = TranscriptReader.Read(Runtime.Pi, lines)!.Title!;
+        Assert.Equal(80, t.Length);
+        Assert.StartsWith("yyy", t);
+    }
+
+    // Mirrors a real claude transcript: a tool_use never answered because the user interrupted and typed a new prompt.
+    [Fact]
+    public void Claude_interrupted_tool_use_not_pending()
+    {
+        string[] lines =
+        [
+            CU("go", "2026-10-25T10:00:00Z"),
+            """{"type":"assistant","sessionId":"s1","timestamp":"2026-10-25T10:00:01Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}""",
+            """{"type":"file-history-snapshot","messageId":"m1"}""",
+            CU("never mind, do this instead", "2026-10-25T10:30:00Z"),
+        ];
+        Assert.False(TranscriptReader.Read(Runtime.Claude, lines)!.PendingTool);
+        lines = [.. lines[..2], CA("Stopped.", "2026-10-25T10:31:00Z")];
+        Assert.False(TranscriptReader.Read(Runtime.Claude, lines)!.PendingTool);
+    }
+
+    [Fact]
+    public void Pi_new_prompt_clears_unanswered_calls()
+    {
+        string[] lines =
+        [
+            """{"type":"session","id":"p1","cwd":"/w","timestamp":"2026-10-25T10:00:00Z"}""",
+            """{"type":"message","timestamp":"2026-10-25T10:00:01Z","message":{"role":"assistant","stopReason":"toolUse","content":[{"type":"toolCall","id":"c1"},{"type":"toolCall","id":"c2"}]}}""",
+            """{"type":"message","timestamp":"2026-10-25T10:00:02Z","message":{"role":"toolResult","toolCallId":"c1","content":[{"type":"text","text":"ok"}]}}""",
+            """{"type":"message","timestamp":"2026-10-25T10:00:03Z","message":{"role":"user","content":[{"type":"text","text":"stop"}]}}""",
+        ];
+        Assert.False(TranscriptReader.Read(Runtime.Pi, lines)!.PendingTool);
+    }
 }

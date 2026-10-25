@@ -7,7 +7,13 @@ using Iceghost.Contracts;
 /// <summary>Parses transcript JSONL lines (claude, codex, pi) into a snapshot. Never throws on bad lines.</summary>
 public static class TranscriptReader
 {
-    const int TailMax = 10, TextMax = 1000;
+    const int TailMax = 10, TextMax = 1000, TitleMax = 80;
+
+    /// <summary>User-role text the harness injects, not the human speaking.</summary>
+    static readonly string[] Synthetic = ["<command-name>", "<command-message>", "<local-command-stdout>",
+        "<local-command-caveat>", "<environment_context>", "<user_instructions>"];
+
+    static bool IsSynthetic(string? t) => t is not null && Synthetic.Any(t.TrimStart().StartsWith);
 
     sealed class Acc
     {
@@ -20,7 +26,7 @@ public static class TranscriptReader
         public void Add(string role, string? text, DateTimeOffset at)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
-            if (role == "user") FirstUser ??= Cut(text);
+            if (role == "user") FirstUser ??= text.Length <= TitleMax ? text : text[..(TitleMax - 1)] + "…";
             Tail.Add(new(role, Cut(text), at));
             if (Tail.Count > TailMax) Tail.RemoveAt(0);
         }
@@ -48,7 +54,7 @@ public static class TranscriptReader
             catch (JsonException) { } // torn or garbage line
         }
         if (a.Id is null) return null;
-        return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? (runtime == Runtime.Codex ? a.FirstUser : null),
+        return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? (runtime == Runtime.Claude ? null : a.FirstUser),
             a.Last, a.Ended, a.Pending.Count > 0, a.Tail);
     }
 
@@ -60,6 +66,7 @@ public static class TranscriptReader
         if (type is not ("user" or "assistant")) return;
         a.Id ??= Str(r, "sessionId");
         a.Cwd ??= Str(r, "cwd");
+        if (Flag(r, "isMeta") || Flag(r, "isCompactSummary")) return;
         var at = Stamp(r, a);
         if (!r.TryGetProperty("message", out var m) || m.ValueKind != JsonValueKind.Object) return;
         var content = m.TryGetProperty("content", out var c) ? c : default;
@@ -80,14 +87,19 @@ public static class TranscriptReader
         {
             var stop = Str(m, "stop_reason");
             a.Ended = stop is not null && stop != "tool_use";
+            if (a.Ended) a.Pending.Clear(); // turn over: unanswered calls were abandoned
         }
     }
 
+    /// <summary>Records text; a real user prompt reopens the turn and abandons unanswered tool calls (interrupts).</summary>
     static void Text(string role, string? text, DateTimeOffset at, Acc a)
     {
+        if (role == "user" && (IsSynthetic(text) || string.IsNullOrWhiteSpace(text))) return;
         a.Add(role, text, at);
-        if (role == "user") a.Ended = false;
+        if (role == "user") { a.Ended = false; a.Pending.Clear(); }
     }
+
+    static bool Flag(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
 
     static void Codex(JsonElement r, Acc a)
     {
@@ -98,7 +110,14 @@ public static class TranscriptReader
             case "session_meta": a.Id ??= Str(p, "id"); a.Cwd ??= Str(p, "cwd"); break;
             case "event_msg":
                 var et = Str(p, "type");
-                if (et == "task_complete") a.Ended = true;
+                if (et == "task_complete")
+                {
+                    a.Ended = true;
+                    a.Pending.Clear();
+                    var err = p.TryGetProperty("error", out var e) ? e : default;
+                    if ((err.ValueKind == JsonValueKind.String ? err.GetString() : Str(err, "message")) is { } msg)
+                        a.Add("assistant", "error: " + msg, at);
+                }
                 else if (et == "task_started") a.Ended = false;
                 break;
             case "response_item":
@@ -107,8 +126,7 @@ public static class TranscriptReader
                     case "message":
                         var role = Str(p, "role");
                         if (role is not ("user" or "assistant")) break;
-                        a.Add(role, Flatten(p.TryGetProperty("content", out var c) ? c : default), at);
-                        if (role == "user") a.Ended = false;
+                        Text(role, Flatten(p.TryGetProperty("content", out var c) ? c : default), at, a);
                         break;
                     case "function_call": if (Str(p, "call_id") is { } id) a.Pending.Add(id); break;
                     case "function_call_output":
@@ -129,13 +147,14 @@ public static class TranscriptReader
         var content = m.TryGetProperty("content", out var c) ? c : default;
         switch (Str(m, "role"))
         {
-            case "user": a.Add("user", Flatten(content), at); a.Ended = false; break;
+            case "user": Text("user", Flatten(content), at, a); break;
             case "assistant":
                 a.Add("assistant", Flatten(content), at);
                 if (content.ValueKind == JsonValueKind.Array)
                     foreach (var p in content.EnumerateArray())
                         if (Str(p, "type") == "toolCall" && Str(p, "id") is { } id) a.Pending.Add(id);
                 a.Ended = Str(m, "stopReason") is { } s && s != "toolUse";
+                if (a.Ended) a.Pending.Clear();
                 break;
             case "toolResult":
                 if (Str(m, "toolCallId") is { } rid) a.Pending.Remove(rid);
