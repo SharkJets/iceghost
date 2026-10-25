@@ -31,6 +31,7 @@ const groups = computed(() => order.map(s => ({ s, items: rows.value.filter(r =>
           <span class="text-slate-400">{{ ago(r.lastActivity, now) }}</span>
         </div>
         <div class="truncate text-sm text-slate-300">{{ r.title ?? '(untitled)' }}</div>
+        <div v-if="r.lastAction && (r.state === 'working' || r.state === 'stalled')" :title="r.lastAction" class="truncate font-mono text-xs text-slate-400">{{ r.lastAction }}</div>
         <div class="text-xs text-slate-500">{{ r.machine }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-slate-700 px-1 text-slate-400">offline</span> · {{ r.runtime }}<span v-if="r.pendingCommands"> · {{ r.pendingCommands }} queued</span></div>
       </a>
     </section>
