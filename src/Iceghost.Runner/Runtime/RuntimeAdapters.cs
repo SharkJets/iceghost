@@ -30,9 +30,34 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
 {
     private const int CaptureLimit = 1_048_576;
     private static readonly UTF8Encoding Utf8 = new(false);
+    private static readonly Regex SessionIdRx = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z", RegexOptions.CultureInvariant);
+    private static readonly char[] ShellMeta = ['"', '&', '|', '<', '>', '^', '%', '\n', '\r'];
+
+    /// <summary>
+    /// Resolves an executable name via PATH (+ PATHEXT on Windows, .exe first). Returns null when not found.
+    /// npm-installed CLIs are .cmd shims on Windows, which Process.Start cannot launch by bare name.
+    /// </summary>
+    public static string? ResolveExecutable(string exe, string? pathVar = null)
+    {
+        if (!OperatingSystem.IsWindows()) return exe;
+        var pathExt = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string[] exts = [".exe", .. pathExt.Where(e => !e.Equals(".exe", StringComparison.OrdinalIgnoreCase))];
+        var dirs = exe.IndexOfAny(['\\', '/']) >= 0
+            ? new[] { "" }
+            : (pathVar ?? Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var d in dirs)
+        {
+            var b = d.Length == 0 ? exe : Path.Combine(d, exe);
+            if (Path.HasExtension(b) && File.Exists(b)) return b;
+            foreach (var x in exts) if (File.Exists(b + x)) return b + x;
+        }
+        return null;
+    }
+
+    private static string Quote(string a) => a.Length > 0 && a.IndexOfAny([' ', '\t']) < 0 ? a : $"\"{a}\"";
 
     protected abstract IReadOnlyList<string> Args(string sessionId);
-    protected abstract bool PromptOnStdin { get; }
     protected abstract string Parse(string stdout);
     protected IReadOnlyList<string> Extra => extraArgs;
 
@@ -40,6 +65,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
     {
         try
         {
+            if (!SessionIdRx.IsMatch(cmd.SessionId ?? "")) return new(false, "invalid session id");
             if (!Directory.Exists(cmd.Cwd)) return new(false, $"{name}: working directory not found: {cmd.Cwd}");
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(timeout);
@@ -68,32 +94,40 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
 
     private async Task<CommandResult> RunAsync(RunnerCommand cmd, CancellationToken ct)
     {
+        var resolved = ResolveExecutable(exe);
+        if (resolved is null) return new(false, $"'{exe}' not found on PATH");
         var psi = new ProcessStartInfo
         {
-            FileName = exe,
             WorkingDirectory = cmd.Cwd,
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardInput = PromptOnStdin,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             StandardOutputEncoding = Utf8,
             StandardErrorEncoding = Utf8,
+            StandardInputEncoding = Utf8,
         };
-        if (PromptOnStdin) psi.StandardInputEncoding = Utf8;
-        foreach (var a in Args(cmd.SessionId)) psi.ArgumentList.Add(a);
-        if (!PromptOnStdin) { psi.ArgumentList.Add("--"); psi.ArgumentList.Add(cmd.Text); }
+        var args = Args(cmd.SessionId);
+        if (OperatingSystem.IsWindows() && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (extraArgs.Any(a => a.IndexOfAny(ShellMeta) >= 0)) return new(false, "extra args contain shell metacharacters");
+            psi.FileName = "cmd.exe";
+            psi.Arguments = $"/d /s /c \"{Quote(resolved)} {string.Join(' ', args.Select(Quote))}\"";
+        }
+        else
+        {
+            psi.FileName = resolved;
+            foreach (var a in args) psi.ArgumentList.Add(a);
+        }
 
         using var p = new Process { StartInfo = psi };
         p.Start();
         using var kill = ct.Register(() => { try { p.Kill(true); } catch (InvalidOperationException) { } });
         var outTask = ReadBounded(p.StandardOutput, ct);
         var errTask = ReadBounded(p.StandardError, ct);
-        if (PromptOnStdin)
-        {
-            try { await p.StandardInput.WriteAsync(cmd.Text.AsMemory(), ct); p.StandardInput.Close(); }
-            catch (IOException) { } // process exited early; its exit code explains why
-        }
+        try { await p.StandardInput.WriteAsync(cmd.Text.AsMemory(), ct); p.StandardInput.Close(); }
+        catch (IOException) { } // process exited early; its exit code explains why
         await p.WaitForExitAsync(ct);
         var stdout = await outTask;
         var stderr = await errTask;
@@ -138,7 +172,6 @@ public sealed class ClaudeAdapter(IReadOnlyList<string> extraArgs, TimeSpan time
     public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
         ["--print", "--output-format", "json", .. extra, "--resume", sessionId];
     protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
-    protected override bool PromptOnStdin => true;
     protected override string Parse(string o) => OutputParsers.Claude(o);
 }
 
@@ -148,17 +181,15 @@ public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeo
     public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
         ["exec", "resume", "--json", "--skip-git-repo-check", .. extra, sessionId, "-"];
     protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
-    protected override bool PromptOnStdin => true;
     protected override string Parse(string o) => OutputParsers.Codex(o);
 }
 
-/// <summary>Pi takes the prompt as the last argument after "--" (appended by SendAsync), not on stdin.</summary>
+/// <summary>Pi reads the prompt from stdin like the others (never on the command line).</summary>
 public sealed class PiAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeout, string exe = "pi")
     : ProcessAdapter("pi", exe, extraArgs, timeout)
 {
     public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
         ["--mode", "json", "--print", "--no-extensions", .. extra, "--session-id", sessionId];
     protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
-    protected override bool PromptOnStdin => false;
     protected override string Parse(string o) => OutputParsers.Pi(o);
 }

@@ -54,6 +54,43 @@ public sealed class RuntimeAdapterTests
     }
 
     [Fact]
+    public async Task Cmd_shim_resolved()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "fake.cmd"), "@echo {\"type\":\"result\",\"is_error\":false,\"result\":\"shim ok\"}\r\n");
+            var path = ProcessAdapter.ResolveExecutable("fake", dir + ";" + Environment.GetEnvironmentVariable("PATH"));
+            Assert.EndsWith("fake.cmd", path, StringComparison.OrdinalIgnoreCase);
+            var r = await new ClaudeAdapter([], T, path!).SendAsync(Cmd("hi"), default);
+            Assert.Equal(new CommandResult(true, "shim ok"), r);
+            var bad = await new ClaudeAdapter(["a&calc"], T, path!).SendAsync(Cmd("hi"), default);
+            Assert.False(bad.Ok);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Prompt_not_in_argv()
+    {
+        const string prompt = "SECRET-PROMPT";
+        Assert.DoesNotContain(prompt, new ClaudeAdapter([], T).BuildArguments("s1", []));
+        Assert.DoesNotContain(prompt, new CodexAdapter([], T).BuildArguments("s1", []));
+        Assert.DoesNotContain(prompt, new PiAdapter([], T).BuildArguments("s1", []));
+    }
+
+    [Fact]
+    public async Task Bad_session_id_rejected()
+    {
+        foreach (var id in new[] { "x & calc", "", "-x", "a\n" })
+        {
+            var r = await new ClaudeAdapter([], T, "iceghost-no-such-exe").SendAsync(Cmd("hi") with { SessionId = id }, default);
+            Assert.Equal(new CommandResult(false, "invalid session id"), r);
+        }
+    }
+
+    [Fact]
     public void Factory_returns_matching_adapter()
     {
         Assert.IsType<ClaudeAdapter>(RuntimeAdapters.For(Runtime.Claude, [], T));
