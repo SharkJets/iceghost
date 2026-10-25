@@ -1,17 +1,30 @@
-name: Build and push image
+name: Build and Deploy to Docker
 
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  image:
+  build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    # Docker push only on pushes to main; pull requests just build the image
     - name: Login to Docker
-      run: echo "${{ secrets.DOCKER_PASS }}" | docker login --username ${{ secrets.DOCKER_USER }} --password-stdin
+      if: github.event_name == 'push'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_PASS }}
     - name: Build the Docker image
+      if: github.event_name == 'push'
       run: docker build -t ${{ secrets.DOCKER_USER }}/iceghost:latest .
     - name: Push the docker image
+      if: github.event_name == 'push'
       run: docker push ${{ secrets.DOCKER_USER }}/iceghost:latest
+    - name: Build the Docker image (PR check)
+      if: github.event_name != 'push'
+      run: docker build -t iceghost:ci .
