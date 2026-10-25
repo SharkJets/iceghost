@@ -112,3 +112,59 @@ public class SessionScannerTests : IDisposable
         Assert.True(got.Count < 60000);
     }
 }
+
+[Collection("ApiEnv")]
+public class ScanRootsEnvTests : IDisposable
+{
+    static readonly string[] Vars = ["PI_CODING_AGENT_SESSION_DIR", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+    readonly Dictionary<string, string?> saved = Vars.ToDictionary(v => v, Environment.GetEnvironmentVariable);
+    readonly string dir = Directory.CreateTempSubdirectory("igr").FullName;
+
+    public ScanRootsEnvTests() { foreach (var v in Vars) Environment.SetEnvironmentVariable(v, null); }
+    public void Dispose()
+    {
+        foreach (var (k, v) in saved) Environment.SetEnvironmentVariable(k, v);
+        try { Directory.Delete(dir, true); } catch { }
+    }
+
+    [Fact]
+    public void Pi_session_dir_beats_agent_dir_beats_default()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.Equal([Path.Combine(home, ".pi", "agent", "sessions")], ScanRoots.Default().Pi);
+        Environment.SetEnvironmentVariable("PI_CODING_AGENT_DIR", Path.Combine(dir, "agent"));
+        Assert.Equal([Path.Combine(dir, "agent", "sessions")], ScanRoots.Default().Pi);
+        Environment.SetEnvironmentVariable("PI_CODING_AGENT_SESSION_DIR", Path.Combine(dir, "s"));
+        Assert.Equal([Path.Combine(dir, "s")], ScanRoots.Default().Pi);
+    }
+
+    [Fact]
+    public void Pi_settings_session_dir_added_with_tilde_expanded()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var agent = Path.Combine(dir, "agent");
+        Directory.CreateDirectory(agent);
+        File.WriteAllText(Path.Combine(agent, "settings.json"), "{\"sessionDir\":\"~/my-pi\"}");
+        Environment.SetEnvironmentVariable("PI_CODING_AGENT_DIR", agent);
+        Assert.Equal([Path.Combine(agent, "sessions"), Path.Combine(home, "my-pi")], ScanRoots.Default().Pi);
+    }
+
+    [Fact]
+    public void Config_roots_replace_default_for_that_runtime_only()
+    {
+        Environment.SetEnvironmentVariable("CODEX_HOME", Path.Combine(dir, "cx"));
+        var r = ScanRoots.Default(new Dictionary<Runtime, string[]> { [Runtime.Pi] = [Path.Combine(dir, "a"), Path.Combine(dir, "b")] });
+        Assert.Equal([Path.Combine(dir, "a"), Path.Combine(dir, "b")], r.Pi);
+        Assert.Equal([Path.Combine(dir, "cx", "sessions")], r.Codex);
+    }
+
+    [Fact]
+    public void Scan_walks_every_root_of_a_runtime()
+    {
+        string W(string root) { var p = Path.Combine(dir, root, "a.jsonl"); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, "{}\n"); return p; }
+        W("r1"); W("r2");
+        var sc = new SessionScanner(new ScanRoots([], [], [Path.Combine(dir, "r1"), Path.Combine(dir, "r2")]),
+            (rt, _) => new SessionSnapshot(rt, Guid.NewGuid().ToString(), "c", null, DateTimeOffset.UtcNow, true, false, []));
+        Assert.Equal(2, sc.Scan(DateTimeOffset.UtcNow).Count);
+    }
+}

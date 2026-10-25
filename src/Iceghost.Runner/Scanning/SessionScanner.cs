@@ -2,18 +2,58 @@ using Iceghost.Contracts;
 
 namespace Iceghost.Runner.Scanning;
 
-public sealed record ScanRoots(string ClaudeProjects, string CodexSessions, string PiSessions)
+public sealed record ScanRoots(IReadOnlyList<string> Claude, IReadOnlyList<string> Codex, IReadOnlyList<string> Pi)
 {
-    public static ScanRoots Default()
+    public ScanRoots(string claudeProjects, string codexSessions, string piSessions)
+        : this([claudeProjects], [codexSessions], [piSessions]) { }
+
+    public IReadOnlyList<string> For(Runtime rt) => rt switch
+    {
+        Runtime.Claude => Claude,
+        Runtime.Codex => Codex,
+        _ => Pi,
+    };
+
+    /// <summary>Env-var defaults; a runtime present in <paramref name="overrides"/> (non-empty) replaces its default.</summary>
+    public static ScanRoots Default(IReadOnlyDictionary<Runtime, string[]>? overrides = null)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var claude = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
-        var codex = Environment.GetEnvironmentVariable("CODEX_HOME");
+        string Env(string k) => Environment.GetEnvironmentVariable(k) ?? "";
+        var claude = Env("CLAUDE_CONFIG_DIR");
+        var codex = Env("CODEX_HOME");
+        IReadOnlyList<string> Pick(Runtime rt, Func<IReadOnlyList<string>> dflt) =>
+            overrides is not null && overrides.TryGetValue(rt, out var o) && o.Length > 0 ? o.Select(p => Expand(p, home)).ToList() : dflt();
         return new(
-            Path.Combine(string.IsNullOrEmpty(claude) ? Path.Combine(home, ".claude") : claude, "projects"),
-            Path.Combine(string.IsNullOrEmpty(codex) ? Path.Combine(home, ".codex") : codex, "sessions"),
-            Path.Combine(home, ".pi", "agent", "sessions"));
+            Pick(Runtime.Claude, () => [Path.Combine(claude == "" ? Path.Combine(home, ".claude") : claude, "projects")]),
+            Pick(Runtime.Codex, () => [Path.Combine(codex == "" ? Path.Combine(home, ".codex") : codex, "sessions")]),
+            Pick(Runtime.Pi, () => PiRoots(home)));
     }
+
+    static List<string> PiRoots(string home)
+    {
+        var dir = Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR");
+        var agent = string.IsNullOrEmpty(dir) ? Path.Combine(home, ".pi", "agent") : Expand(dir, home);
+        var sess = Environment.GetEnvironmentVariable("PI_CODING_AGENT_SESSION_DIR");
+        var roots = new List<string> { string.IsNullOrEmpty(sess) ? Path.Combine(agent, "sessions") : Expand(sess, home) };
+        try
+        {
+            var settings = Path.Combine(agent, "settings.json");
+            if (File.Exists(settings)
+                && System.Text.Json.JsonDocument.Parse(File.ReadAllText(settings), new() { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip })
+                    .RootElement is { ValueKind: System.Text.Json.JsonValueKind.Object } o
+                && o.TryGetProperty("sessionDir", out var sd) && sd.ValueKind == System.Text.Json.JsonValueKind.String
+                && sd.GetString() is { Length: > 0 } s)
+            {
+                var full = Expand(s, home);
+                if (!roots.Contains(full, StringComparer.OrdinalIgnoreCase)) roots.Add(full);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { } // bad settings.json: keep the default root
+        return roots;
+    }
+
+    static string Expand(string p, string home) =>
+        p == "~" ? home : p.StartsWith("~/") || p.StartsWith("~\\") ? Path.Combine(home, p[2..]) : p;
 }
 
 public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<string>, SessionSnapshot?> read)
@@ -27,7 +67,7 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
     public IReadOnlyList<SessionReport> Scan(DateTimeOffset now)
     {
         var files = new List<(Runtime Rt, string Path, DateTime Mtime)>();
-        foreach (var (rt, root) in new[] { (Runtime.Claude, roots.ClaudeProjects), (Runtime.Codex, roots.CodexSessions), (Runtime.Pi, roots.PiSessions) })
+        foreach (var (rt, root) in new[] { Runtime.Claude, Runtime.Codex, Runtime.Pi }.SelectMany(r => roots.For(r).Select(p => (r, p))))
         {
             if (!Directory.Exists(root)) continue;
             try
