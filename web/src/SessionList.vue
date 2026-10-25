@@ -20,7 +20,7 @@ const groups = computed(() => order.map(s => ({ s, items: rows.value.filter(r =>
     <p v-if="!rows.length" class="text-slate-400">No sessions yet.</p>
     <section v-for="g in groups" :key="g.s">
       <h2 class="mb-1 text-xs uppercase tracking-wide text-slate-400">{{ g.s }}</h2>
-      <a v-for="r in g.items" :key="r.machineId + r.sessionId" :href="`#/s/${r.machineId}/${encodeURIComponent(r.sessionId)}`"
+      <a v-for="r in g.items" :key="`${r.machineId}/${r.sessionId}`" :href="`#/s/${r.machineId}/${encodeURIComponent(r.sessionId)}`"
         class="mb-1 block rounded bg-slate-800 p-3">
         <div class="flex justify-between text-sm">
           <span class="font-medium">{{ folder(r.cwd) }}</span>

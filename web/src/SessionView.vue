@@ -3,30 +3,38 @@ import { ref } from 'vue'
 import { api, Unauthorized, type SessionDetail } from './api'
 import { ago, folder } from './format'
 import { usePoll, ticker } from './useNow'
+import { guard } from './route'
 
 const props = defineProps<{ machineId: string; sessionId: string }>()
 const emit = defineEmits<{ unauth: [] }>()
 const d = ref<SessionDetail | null>(null)
 const text = ref('')
 const err = ref('')
+const sending = ref(false)
+const loadErr = ref(false)
 const now = ticker()
 const url = `/api/sessions/${props.machineId}/${encodeURIComponent(props.sessionId)}`
 usePoll(async () => {
-  try { d.value = await api<SessionDetail>(url) }
-  catch (e) { if (e instanceof Unauthorized) emit('unauth'); throw e }
+  try { d.value = await api<SessionDetail>(url); loadErr.value = false }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else loadErr.value = true; throw e }
 }, 3000)
 
-async function send() {
+const send = guard(async () => {
   const t = text.value.trim()
   if (!t) return
   err.value = ''
+  sending.value = true
   try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url) }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = 'Send failed (1 to 20000 chars)' }
-}
+  finally { sending.value = false }
+})
 </script>
 <template>
-  <div v-if="d" class="space-y-4">
+  <div class="space-y-4">
     <a href="#/" class="text-sm text-sky-400">&larr; Sessions</a>
+    <p v-if="!d && loadErr" class="text-red-400">Could not load session.</p>
+  </div>
+  <div v-if="d" class="space-y-4">
     <div>
       <h1 class="font-semibold">{{ d.session.title ?? folder(d.session.cwd) }}</h1>
       <div class="text-xs text-slate-500">{{ d.session.machine }} · {{ d.session.runtime }} · {{ d.session.state }} · {{ d.session.cwd }}</div>
@@ -48,7 +56,7 @@ async function send() {
         @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send"></textarea>
       <div class="flex items-center justify-between">
         <span class="text-sm text-red-400">{{ err }}</span>
-        <button class="rounded bg-sky-600 px-4 py-1" @click="send">Send</button>
+        <button class="rounded bg-sky-600 px-4 py-1" :disabled="sending" @click="send">Send</button>
       </div>
     </div>
   </div>

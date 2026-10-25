@@ -8,6 +8,7 @@ const emit = defineEmits<{ unauth: [] }>()
 const rows = ref<MachineRow[]>([])
 const name = ref('')
 const token = ref<string | null>(null)
+const err = ref('')
 const now = ticker()
 const cmd = () => `iceghost-runner run --server ${location.origin} --token ${token.value}`
 
@@ -17,14 +18,21 @@ async function load() {
 }
 usePoll(load, 10000)
 
+function fail(e: unknown, msg: string) { if (e instanceof Unauthorized) emit('unauth'); else err.value = msg }
+
 async function enroll() {
   if (!name.value.trim()) return
-  const r = await api<{ id: number; token: string }>('/api/machines', 'POST', { name: name.value.trim() })
-  token.value = r.token; name.value = ''; await load()
+  err.value = ''
+  try {
+    const r = await api<{ id: number; token: string }>('/api/machines', 'POST', { name: name.value.trim() })
+    token.value = r.token; name.value = ''; await load()
+  } catch (e) { fail(e, 'Enroll failed') }
 }
 async function remove(m: MachineRow) {
   if (!confirm(`Delete machine ${m.name}? Its sessions and queue are removed.`)) return
-  await api(`/api/machines/${m.id}`, 'DELETE'); await load()
+  err.value = ''
+  try { await api(`/api/machines/${m.id}`, 'DELETE'); await load() }
+  catch (e) { fail(e, 'Delete failed') }
 }
 const copy = () => navigator.clipboard?.writeText(cmd())
 </script>
@@ -35,6 +43,7 @@ const copy = () => navigator.clipboard?.writeText(cmd())
       <input v-model="name" placeholder="New machine name" class="min-w-0 flex-1 rounded bg-slate-800 p-2" />
       <button class="rounded bg-sky-600 px-4">Enroll</button>
     </form>
+    <p v-if="err" class="text-sm text-red-400">{{ err }}</p>
     <div v-if="token" class="rounded bg-slate-800 p-3 text-sm">
       <p class="mb-1 text-amber-300">Shown once. Copy it now.</p>
       <code class="block break-all font-mono text-xs">{{ cmd() }}</code>
