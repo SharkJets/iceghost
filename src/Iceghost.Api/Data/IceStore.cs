@@ -7,21 +7,25 @@ using Microsoft.EntityFrameworkCore;
 namespace Iceghost.Api.Data;
 
 public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands);
-public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt);
+public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
 public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
 
 public sealed class IceStore
 {
-    static readonly TimeSpan DeliveredTimeout = TimeSpan.FromMinutes(60);
+    static readonly TimeSpan DeliveredTimeout = TimeSpan.FromHours(6);
+    static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMinutes(3);
     readonly DbContextOptions<IceDb> _opts;
 
     public IceStore(string dbPath)
     {
         _opts = new DbContextOptionsBuilder<IceDb>().UseSqlite($"Data Source={dbPath}").Options;
-        // ponytail: EnsureCreated, add migrations at the first schema change
+        // ponytail: EnsureCreated + add-missing-columns, add migrations at the next real schema change
         using var db = Db();
         db.Database.EnsureCreated();
+        var cols = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Commands')").ToList();
+        foreach (var col in new[] { "StartedAt", "HeartbeatAt" })
+            if (!cols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Commands ADD COLUMN {col} TEXT NULL");
     }
 
     IceDb Db() => new(_opts);
@@ -78,7 +82,7 @@ public sealed class IceStore
         using var db = Db();
         Expire(db, now, null);
         var names = db.Machines.ToDictionary(m => m.Id, m => m.Name);
-        var pend = db.Commands.Where(c => c.Status == "queued" || c.Status == "delivered")
+        var pend = db.Commands.Where(c => c.Status == "queued" || c.Status == "delivered" || c.Status == "running")
             .GroupBy(c => new { c.MachineId, c.SessionId }).Select(g => new { g.Key.MachineId, g.Key.SessionId, N = g.Count() })
             .ToList().ToDictionary(x => (x.MachineId, x.SessionId), x => x.N);
         return db.Sessions.AsEnumerable()
@@ -94,9 +98,9 @@ public sealed class IceStore
         Expire(db, now, machineId);
         var name = db.Machines.Where(m => m.Id == machineId).Select(m => m.Name).FirstOrDefault() ?? "";
         var cmds = db.Commands.Where(c => c.MachineId == machineId && c.SessionId == sessionId).OrderBy(c => c.Id).ToList();
-        var pending = cmds.Count(c => c.Status is "queued" or "delivered");
+        var pending = cmds.Count(c => c.Status is "queued" or "delivered" or "running");
         var tail = JsonSerializer.Deserialize<List<TranscriptEntry>>(s.TailJson, IceJson.Options) ?? [];
-        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt)).ToList());
+        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt, c.StartedAt, c.HeartbeatAt)).ToList());
     }
 
     public long? Enqueue(long machineId, string sessionId, string text, DateTimeOffset now)
@@ -112,11 +116,21 @@ public sealed class IceStore
 
     static void Expire(IceDb db, DateTimeOffset now, long? machineId)
     {
-        var stale = db.Commands.Where(c => c.Status == "delivered" && (machineId == null || c.MachineId == machineId)).AsEnumerable()
-            .Where(c => now - c.DeliveredAt >= DeliveredTimeout).Select(c => c.Id).ToList();
-        foreach (var id in stale)
-            db.Commands.Where(c => c.Id == id && c.Status == "delivered")
-                .ExecuteUpdate(u => u.SetProperty(c => c.Status, "failed").SetProperty(c => c.Output, "no result from runner"));
+        var live = db.Commands.Where(c => (c.Status == "delivered" || c.Status == "running") && (machineId == null || c.MachineId == machineId)).AsNoTracking().ToList();
+        foreach (var c in live.Where(c => c.Status == "delivered" && now - c.DeliveredAt >= DeliveredTimeout))
+            db.Commands.Where(x => x.Id == c.Id && x.Status == "delivered")
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "no result from runner"));
+        foreach (var c in live.Where(c => c.Status == "running" && now - (c.HeartbeatAt ?? c.StartedAt ?? c.DeliveredAt) >= HeartbeatTimeout))
+            db.Commands.Where(x => x.Id == c.Id && x.Status == "running")
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "runner stopped responding (killed or offline)"));
+    }
+
+    public bool Heartbeat(long machineId, long commandId, DateTimeOffset now)
+    {
+        using var db = Db();
+        // atomic: only this machine's delivered|running command; first beat flips delivered -> running
+        return db.Commands.Where(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"))
+            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "running").SetProperty(c => c.StartedAt, c => c.StartedAt ?? now).SetProperty(c => c.HeartbeatAt, now)) == 1;
     }
 
     public IReadOnlyList<RunnerCommand> TakeCommands(long machineId, DateTimeOffset now)
@@ -134,7 +148,7 @@ public sealed class IceStore
     public bool Complete(long machineId, long commandId, CommandResult r, DateTimeOffset now)
     {
         using var db = Db();
-        var c = db.Commands.FirstOrDefault(c => c.Id == commandId && c.MachineId == machineId && c.Status == "delivered");
+        var c = db.Commands.FirstOrDefault(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"));
         if (c is null) return false;
         c.Status = r.Ok ? "done" : "failed";
         c.Output = r.Output;

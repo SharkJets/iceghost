@@ -85,14 +85,14 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
-    public void Delivered_after_60min_failed()
+    public void Delivered_waits_6h()
     {
         var s = Store(); var (id, _) = s.CreateMachine("d");
         s.ApplyReport(id, Full(Sess("s1")), T);
         s.Enqueue(id, "s1", "hi", T); s.TakeCommands(id, T);
-        s.TakeCommands(id, T.AddMinutes(59));
+        s.TakeCommands(id, T.AddHours(6).AddMinutes(-1));
         Assert.Equal("delivered", s.GetSession(id, "s1", T)!.Commands[0].Status);
-        s.TakeCommands(id, T.AddMinutes(60));
+        s.TakeCommands(id, T.AddHours(6));
         var c = s.GetSession(id, "s1", T)!.Commands[0];
         Assert.Equal("failed", c.Status);
         Assert.Equal("no result from runner", c.Output);
@@ -104,9 +104,9 @@ public sealed class IceStoreTests : IDisposable
         var s = Store(); var (id, _) = s.CreateMachine("d");
         s.ApplyReport(id, Full(Sess("s1")), T);
         s.Enqueue(id, "s1", "hi", T); s.TakeCommands(id, T);
-        Assert.Equal(1, s.ListSessions(T.AddMinutes(59))[0].PendingCommands);
-        Assert.Equal(0, s.ListSessions(T.AddMinutes(60))[0].PendingCommands);
-        var c = s.GetSession(id, "s1", T.AddMinutes(60))!.Commands[0];
+        Assert.Equal(1, s.ListSessions(T.AddHours(6).AddMinutes(-1))[0].PendingCommands);
+        Assert.Equal(0, s.ListSessions(T.AddHours(6))[0].PendingCommands);
+        var c = s.GetSession(id, "s1", T.AddHours(6))!.Commands[0];
         Assert.Equal(("failed", "no result from runner"), (c.Status, c.Output));
     }
 
@@ -140,5 +140,70 @@ public sealed class IceStoreTests : IDisposable
         var s = Store(); var (id, _) = s.CreateMachine("d");
         s.ApplyReport(id, Full(Sess("old", T), Sess("new", T.AddHours(1))), T);
         Assert.Equal(["new", "old"], s.ListSessions(T).Select(r => r.SessionId));
+    }
+
+    IceStore Running(out long id)
+    {
+        var s = Store(); (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.Enqueue(id, "s1", "hi", T); s.TakeCommands(id, T);
+        return s;
+    }
+
+    [Fact]
+    public void Heartbeat_moves_to_running()
+    {
+        var s = Running(out var id);
+        Assert.True(s.Heartbeat(id, 1, T.AddSeconds(5)));
+        Assert.True(s.Heartbeat(id, 1, T.AddSeconds(20)));
+        var c = s.GetSession(id, "s1", T.AddSeconds(20))!.Commands[0];
+        Assert.Equal(("running", T.AddSeconds(5), T.AddSeconds(20)), (c.Status, c.StartedAt, c.HeartbeatAt));
+        Assert.False(s.Heartbeat(id, 99, T));
+    }
+
+    [Fact]
+    public void Heartbeat_other_machine_404()
+    {
+        var s = Running(out var id); var (b, _) = s.CreateMachine("b");
+        Assert.False(s.Heartbeat(b, 1, T));
+        Assert.Equal("delivered", s.GetSession(id, "s1", T)!.Commands[0].Status);
+    }
+
+    [Fact]
+    public void Stale_running_fails_after_3min()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.Equal("running", s.GetSession(id, "s1", T.AddMinutes(2))!.Commands[0].Status);
+        Assert.Equal(1, s.ListSessions(T.AddMinutes(2))[0].PendingCommands);
+        var c = s.GetSession(id, "s1", T.AddMinutes(3))!.Commands[0];
+        Assert.Equal(("failed", "runner stopped responding (killed or offline)"), (c.Status, c.Output));
+        Assert.False(s.Heartbeat(id, 1, T.AddMinutes(4)));
+    }
+
+    [Fact]
+    public void Complete_from_running()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.True(s.Complete(id, 1, new(true, "ok"), T));
+        Assert.Equal("done", s.GetSession(id, "s1", T)!.Commands[0].Status);
+    }
+
+    [Fact]
+    public void Existing_db_gets_new_columns()
+    {
+        var s = Running(out var id);
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "ALTER TABLE Commands DROP COLUMN StartedAt; ALTER TABLE Commands DROP COLUMN HeartbeatAt;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s2 = Store();
+        Assert.True(s2.Heartbeat(id, 1, T));
+        Assert.Equal("running", s2.GetSession(id, "s1", T)!.Commands[0].Status);
     }
 }

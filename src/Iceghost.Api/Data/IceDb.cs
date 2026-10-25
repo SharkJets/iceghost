@@ -33,10 +33,12 @@ public sealed class CommandEntity
     public Runtime Runtime { get; set; }
     public string Cwd { get; set; } = "";
     public string Text { get; set; } = "";
-    public string Status { get; set; } = "queued"; // queued|delivered|done|failed
+    public string Status { get; set; } = "queued"; // queued|delivered|running|done|failed
     public string? Output { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? DeliveredAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? HeartbeatAt { get; set; }
 }
 
 public sealed class IceDb(DbContextOptions<IceDb> options) : DbContext(options)
