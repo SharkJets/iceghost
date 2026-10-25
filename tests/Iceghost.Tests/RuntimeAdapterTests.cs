@@ -92,13 +92,14 @@ public sealed class RuntimeAdapterTests
 
     private static async Task<CommandResult> FailingStdout(bool codex, string stdout)
     {
-        if (!OperatingSystem.IsWindows()) return new(false, "unknown input item type");
         var dir = Directory.CreateTempSubdirectory().FullName;
         try
         {
             File.WriteAllText(Path.Combine(dir, "out.txt"), stdout);
-            File.WriteAllText(Path.Combine(dir, "fake.cmd"), "@type \"%~dp0out.txt\"\r\n@exit /b 1\r\n");
-            var path = Path.Combine(dir, "fake.cmd");
+            var win = OperatingSystem.IsWindows();
+            var path = Path.Combine(dir, win ? "fake.cmd" : "fake.sh");
+            File.WriteAllText(path, win ? "@type \"%~dp0out.txt\"\r\n@exit /b 1\r\n" : "#!/bin/sh\ncat \"$(dirname \"$0\")/out.txt\"\nexit 1\n");
+            if (!win) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             IRuntimeAdapter a = codex ? new CodexAdapter([], T, path) : new ClaudeAdapter([], T, path);
             return await a.SendAsync(Cmd("hi"), default);
         }
