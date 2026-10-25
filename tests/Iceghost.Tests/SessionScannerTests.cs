@@ -44,6 +44,14 @@ public class SessionScannerTests : IDisposable
     }
 
     [Fact]
+    public void Scan_carries_last_action()
+    {
+        Make("proj/a.jsonl", TimeSpan.FromMinutes(1));
+        var sc = new SessionScanner(Roots(), (rt, _) => Snap(true, "Done.", TimeSpan.FromMinutes(1)) with { LastAction = "Bash: ls" });
+        Assert.Equal("Bash: ls", Assert.Single(sc.Scan(Now)).LastAction);
+    }
+
+    [Fact]
     public void Locked_file_read()
     {
         var p = Make("proj/a.jsonl", TimeSpan.FromMinutes(1));
