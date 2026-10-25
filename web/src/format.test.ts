@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, commandLabel } from './format'
+import { ago, commandLabel, isOffline } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -32,4 +32,10 @@ describe('commandLabel', () => {
     expect(commandLabel({ status: 'done' }, '', n, false)).toEqual({ text: 'done', tone: 'normal' })
     expect(commandLabel({ status: 'failed' }, '', n, false).tone).toBe('bad')
   })
+})
+
+it('isOffline', () => {
+  expect(isOffline(null, now)).toBe(true)
+  expect(isOffline('2026-10-25T10:02:00Z', now)).toBe(true)
+  expect(isOffline('2026-10-25T10:04:30Z', now)).toBe(false)
 })

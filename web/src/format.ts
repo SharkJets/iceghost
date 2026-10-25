@@ -27,3 +27,6 @@ export function commandLabel(
   if (quiet > 300) return { text: `quiet for ${Math.floor(quiet / 60)}m, may be stuck`, tone: 'warn' }
   return { text: `running ${Math.floor(secs(started) / 60)}m · last activity ${quiet}s ago`, tone: 'busy' }
 }
+
+export const isOffline = (lastSeen: string | null | undefined, now: Date) =>
+  !lastSeen || now.getTime() - new Date(lastSeen).getTime() > 120000

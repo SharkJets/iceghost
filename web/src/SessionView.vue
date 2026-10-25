@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { api, Unauthorized, type SessionDetail } from './api'
-import { ago, commandLabel, folder } from './format'
+import { api, Unauthorized, type SessionDetail, type MachineRow } from './api'
+import { ago, commandLabel, folder, isOffline } from './format'
 import { usePoll, ticker } from './useNow'
 import { guard } from './route'
 
@@ -14,12 +14,15 @@ const sending = ref(false)
 const loadErr = ref(false)
 const now = ticker()
 const ta = ref<HTMLTextAreaElement | null>(null)
+const seen = ref<string | null | undefined>(undefined)
 const url = `/api/sessions/${props.machineId}/${encodeURIComponent(props.sessionId)}`
 usePoll(async () => {
-  try { d.value = await api<SessionDetail>(url); loadErr.value = false }
+  try { d.value = await api<SessionDetail>(url); loadErr.value = false
+    seen.value = (await api<MachineRow[]>('/api/machines').catch(() => null))?.find(m => String(m.id) === props.machineId)?.lastSeen }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else loadErr.value = true; throw e }
 }, 3000)
 
+const offline = computed(() => seen.value !== undefined && isOffline(seen.value, now.value))
 const cmds = computed(() => [...(d.value?.commands ?? [])].sort((a, b) => b.id - a.id))
 const tail = computed(() => [...(d.value?.tail ?? [])].reverse())
 const tones = { normal: 'text-slate-400', busy: 'text-sky-400', warn: 'text-amber-400', bad: 'text-red-400' }
@@ -34,7 +37,7 @@ const send = guard(async () => {
   err.value = ''
   sending.value = true
   try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url); window.scrollTo({ top: 0, behavior: 'smooth' }); ta.value?.focus() }
-  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = 'Send failed (1 to 20000 chars)' }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (1 to 20000 chars)' }
   finally { sending.value = false }
 })
 </script>
@@ -48,12 +51,13 @@ const send = guard(async () => {
       <h1 class="font-semibold">{{ d.session.title ?? folder(d.session.cwd) }}</h1>
       <div class="text-xs text-slate-500">{{ d.session.machine }} · {{ d.session.runtime }} · {{ d.session.state }} · {{ d.session.cwd }}</div>
     </div>
+    <p v-if="offline" class="rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
     <div>
       <textarea ref="ta" v-model="text" rows="3" placeholder="Message (Ctrl/Cmd+Enter to send)" class="w-full rounded bg-slate-800 p-2"
         @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send"></textarea>
       <div class="flex items-center justify-between">
         <span class="text-sm text-red-400">{{ err }}</span>
-        <button class="rounded bg-sky-600 px-4 py-1" :disabled="sending" @click="send">Send</button>
+        <button class="rounded bg-sky-600 px-4 py-1" :disabled="sending || offline" @click="send">Send</button>
       </div>
     </div>
     <div v-if="cmds.length">

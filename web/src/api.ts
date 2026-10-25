@@ -1,4 +1,5 @@
 export class Unauthorized extends Error {}
+export const auth = { onUnauthorized: () => {} }
 
 export async function api<T = unknown>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const r = await fetch(path, {
@@ -6,8 +7,11 @@ export async function api<T = unknown>(path: string, method = 'GET', body?: unkn
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (r.status === 401 && path !== '/api/login') throw new Unauthorized()
-  if (!r.ok) throw new Error(`${r.status}`)
+  if (r.status === 401 && path !== '/api/login') { auth.onUnauthorized(); throw new Unauthorized() }
+  if (!r.ok) {
+    const j = await r.json().catch(() => null)
+    throw new Error(typeof j?.error === 'string' ? j.error : `${r.status}`)
+  }
   const text = await r.text()
   return (text ? JSON.parse(text) : undefined) as T
 }

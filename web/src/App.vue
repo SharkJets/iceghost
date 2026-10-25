@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { api } from './api'
+import { api, auth } from './api'
 import Login from './Login.vue'
 import SessionList from './SessionList.vue'
 import SessionView from './SessionView.vue'
@@ -13,6 +13,7 @@ addEventListener('hashchange', onHash)
 onUnmounted(() => removeEventListener('hashchange', onHash))
 
 const authed = ref(true) // optimistic; the first 401 flips it
+auth.onUnauthorized = () => { authed.value = false }
 const gen = ref(0) // bump to remount views after login
 const route = computed(() => parseRoute(hash.value))
 
