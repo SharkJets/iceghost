@@ -14,6 +14,7 @@ onUnmounted(() => removeEventListener('hashchange', onHash))
 
 const authed = ref(true) // optimistic; the first 401 flips it
 auth.onUnauthorized = () => { authed.value = false }
+const version = import.meta.env.VITE_VERSION || 'dev'
 const gen = ref(0) // bump to remount views after login
 const route = computed(() => parseRoute(hash.value))
 
@@ -24,7 +25,7 @@ function loggedIn() { authed.value = true; gen.value++ }
   <Login v-if="!authed" @ok="loggedIn" />
   <div v-else class="mx-auto max-w-2xl p-3">
     <header class="mb-4 flex items-center justify-between">
-      <a href="#/" class="text-lg font-semibold">iceghost</a>
+      <span><a href="#/" class="text-lg font-semibold">iceghost</a> <span class="text-xs text-slate-500">{{ version }}</span></span>
       <nav class="flex gap-4 text-sm text-slate-400">
         <a href="#/machines">Machines</a><button @click="logout">Logout</button>
       </nav>

@@ -23,6 +23,13 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Version_stamped_into_image()
+    {
+        Assert.Contains("VITE_VERSION", Read("Dockerfile"));
+        Assert.Contains("ICEGHOST_VERSION", Read(".github/workflows/pipeline.yml"));
+    }
+
+    [Fact]
     public void Release_renames_binary()
     {
         Assert.Contains("iceghost-runner.exe", Read(".github/workflows/runner-release.yml"));
