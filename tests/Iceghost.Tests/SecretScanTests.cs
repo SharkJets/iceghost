@@ -46,7 +46,11 @@ public class SecretScanTests
     {
         var root = FindRepoRoot();
         var files = GitFiles(root);
-        if (files is null) return; // git unavailable or not a repo: nothing to scan
+        if (files is null)
+        {
+            Assert.True(Environment.GetEnvironmentVariable("CI") is null, "git ls-files failed in CI: secret scan would be skipped");
+            return; // local: git unavailable or not a repo
+        }
 
         var hits = new List<string>();
         foreach (var rel in files)
