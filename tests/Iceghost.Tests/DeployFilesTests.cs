@@ -35,9 +35,12 @@ public class DeployFilesTests
     }
 
     [Fact]
-    public void Manifest_has_no_secret_object()
+    public void Compose_uses_env_file()
     {
-        Assert.DoesNotMatch(@"(?m)^\s*kind:\s*Secret\b", Read("deploy/kubernetes.yaml"));
+        var text = Read("docker-compose.yml");
+        Assert.Contains("env_file:", text);
+        Assert.Contains(".env", text);
+        Assert.DoesNotContain("ICEGHOST_ADMIN_PASSWORD=", text);
     }
 
     [Fact]
