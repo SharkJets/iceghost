@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 var dev = Environment.GetEnvironmentVariable("ICEGHOST_DEV") == "1";
 
+builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 4 * 1024 * 1024);
+
 var dataDir = Environment.GetEnvironmentVariable("ICEGHOST_DATA") ?? "./data";
 Directory.CreateDirectory(dataDir);
 builder.Services.AddSingleton(new IceStore(Path.Combine(dataDir, "iceghost.db")));
@@ -32,6 +34,8 @@ builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // Global (unpartitioned) on purpose: behind cloudflared+nginx RemoteIpAddress may be the ingress for everyone,
+    // so per-IP would be bypassable or shared. Cost: an attacker can lock out the admin for the window.
     o.AddFixedWindowLimiter("login", p =>
     {
         p.PermitLimit = 5;
@@ -40,6 +44,20 @@ builder.Services.AddRateLimiter(o =>
 });
 
 var app = builder.Build();
+
+// CSRF defence in depth on top of SameSite=Lax: reject cross-site browser mutations of /api.
+app.Use(async (ctx, next) =>
+{
+    var r = ctx.Request;
+    if (!HttpMethods.IsGet(r.Method) && !HttpMethods.IsHead(r.Method) && !HttpMethods.IsOptions(r.Method)
+        && r.Path.StartsWithSegments("/api")
+        && r.Headers.TryGetValue("Sec-Fetch-Site", out var site) && site != "same-origin" && site != "none")
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+    await next();
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
