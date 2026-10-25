@@ -22,11 +22,11 @@ public class SessionScannerTests : IDisposable
 
     ScanRoots Roots() => new(Path.Combine(dir, "c"), Path.Combine(dir, "x"), Path.Combine(dir, "p"));
 
-    string Make(string rel, TimeSpan age)
+    string Make(string rel, TimeSpan age, string content = "{}")
     {
         var p = Path.Combine(dir, "c", rel);
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);
-        File.WriteAllText(p, "{}\n");
+        File.WriteAllText(p, content + "\n");
         File.SetLastWriteTimeUtc(p, Now.UtcDateTime - age);
         return p;
     }
@@ -66,7 +66,7 @@ public class SessionScannerTests : IDisposable
     [Fact]
     public void Cap_50_newest()
     {
-        for (var i = 0; i < 60; i++) Make($"proj/{i}.jsonl", TimeSpan.FromMinutes(i + 1));
+        for (var i = 0; i < 60; i++) Make($"proj/{i}.jsonl", TimeSpan.FromMinutes(i + 1), i.ToString());
         var sc = new SessionScanner(Roots(), (rt, lines) => Snap(true, "Done.", TimeSpan.Zero) with { SessionId = lines[0] });
         var ids = sc.Scan(Now).Select(r => r.SessionId).ToHashSet();
         Assert.Equal(50, ids.Count);
