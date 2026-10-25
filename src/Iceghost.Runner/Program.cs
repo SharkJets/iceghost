@@ -1,3 +1,4 @@
+using Iceghost.Contracts;
 using Iceghost.Runner.Cli;
 using Iceghost.Runner.Loop;
 using Iceghost.Runner.Adapters;
@@ -44,7 +45,11 @@ public static class Program
         var timeout = TimeSpan.FromMinutes(cfg.TimeoutMinutes);
         using var http = new HttpClient { BaseAddress = new Uri(cfg.Server) };
         var client = new ServerClient(http, cfg.Token);
-        var scanner = new SessionScanner(ScanRoots.Default(), TranscriptReader.Read);
+        var roots = ScanRoots.Default(cfg.Roots);
+        foreach (var rt in new[] { Runtime.Claude, Runtime.Codex, Runtime.Pi })
+            foreach (var r in roots.For(rt))
+                Console.WriteLine($"{rt}: {r}{(Directory.Exists(r) ? "" : " (missing)")}");
+        var scanner = new SessionScanner(roots, TranscriptReader.Read);
         var loop = new RunnerLoop(client, scanner.Scan,
             runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), timeout),
             TimeProvider.System);

@@ -3,7 +3,7 @@ using Iceghost.Contracts;
 
 namespace Iceghost.Runner.Cli;
 
-public record RunnerConfig(string Server, string Token, Dictionary<Runtime, string[]> ExtraArgs, int TimeoutMinutes = 30)
+public record RunnerConfig(string Server, string Token, Dictionary<Runtime, string[]> ExtraArgs, int TimeoutMinutes = 30, Dictionary<Runtime, string[]>? Roots = null)
 {
     private const string FileName = "config.json";
 

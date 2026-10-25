@@ -30,6 +30,16 @@ public class RunnerConfigTests : IDisposable
     }
 
     [Fact]
+    public void Roots_roundtrip()
+    {
+        var c = new RunnerConfig("https://x", "t", new(), 30, new() { [Runtime.Pi] = ["/a", "/b"] });
+        RunnerConfig.Save(_dir, c);
+        Assert.Equal(["/a", "/b"], RunnerConfig.Load(_dir)!.Roots![Runtime.Pi]);
+        RunnerConfig.Save(_dir, c with { Roots = null });
+        Assert.Null(RunnerConfig.Load(_dir)!.Roots);
+    }
+
+    [Fact]
     public async Task Corrupt_config_exits_2_with_message()
     {
         Directory.CreateDirectory(_dir);
