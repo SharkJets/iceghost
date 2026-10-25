@@ -222,7 +222,28 @@ public sealed class IceStoreTests : IDisposable
         Assert.Equal(1, s.ListSessions(T.AddMinutes(2))[0].PendingCommands);
         var c = s.GetSession(id, "s1", T.AddMinutes(3))!.Commands[0];
         Assert.Equal(("failed", "runner stopped responding (killed or offline)"), (c.Status, c.Output));
-        Assert.False(s.Heartbeat(id, 1, T.AddMinutes(4)));
+    }
+
+    [Fact]
+    public void Heartbeat_revives_heartbeat_expired()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.Equal("failed", s.GetSession(id, "s1", T.AddMinutes(4))!.Commands[0].Status);
+        Assert.True(s.Heartbeat(id, 1, T.AddMinutes(4)));
+        var c = s.GetSession(id, "s1", T.AddMinutes(4))!.Commands[0];
+        Assert.Equal(("running", (string?)null), (c.Status, c.Output));
+    }
+
+    [Fact]
+    public void Heartbeat_does_not_revive_dismissed()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.True(s.Dismiss(id, "s1", 1));
+        Assert.False(s.Heartbeat(id, 1, T.AddSeconds(5)));
+        var c = s.GetSession(id, "s1", T)!.Commands[0];
+        Assert.Equal(("failed", "dismissed"), (c.Status, c.Output));
     }
 
     [Fact]

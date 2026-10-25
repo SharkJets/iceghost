@@ -144,9 +144,9 @@ public sealed class IceStore
     public bool Heartbeat(long machineId, long commandId, DateTimeOffset now)
     {
         using var db = Db();
-        // atomic: only this machine's delivered|running command; first beat flips delivered -> running
-        return db.Commands.Where(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"))
-            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "running").SetProperty(c => c.StartedAt, c => c.StartedAt ?? now).SetProperty(c => c.HeartbeatAt, now)) == 1;
+        // atomic: only this machine's delivered|running command; first beat flips delivered -> running; a heartbeat-expired one is revived
+        return db.Commands.Where(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running" || (c.Status == "failed" && c.Output == HeartbeatExpired)))
+            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "running").SetProperty(c => c.Output, (string?)null).SetProperty(c => c.StartedAt, c => c.StartedAt ?? now).SetProperty(c => c.HeartbeatAt, now)) == 1;
     }
 
     public IReadOnlyList<RunnerCommand> TakeCommands(long machineId, DateTimeOffset now, bool fresh = false)
