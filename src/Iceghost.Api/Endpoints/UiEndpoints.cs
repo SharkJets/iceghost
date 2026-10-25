@@ -53,8 +53,12 @@ public static class UiEndpoints
         {
             var text = body?.Text;
             if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) return Results.BadRequest();
-            return s.Enqueue(machineId, sessionId, text, DateTimeOffset.UtcNow) is { } id
-                ? Json(new { id }, 202) : Results.NotFound();
+            try
+            {
+                return s.Enqueue(machineId, sessionId, text, DateTimeOffset.UtcNow) is { } id
+                    ? Json(new { id }, 202) : Results.NotFound();
+            }
+            catch (MachineOfflineException e) { return Json(new { error = e.Message }, 409); }
         });
 
         api.MapGet("/machines", (IceStore s) => Json(s.ListMachines()));

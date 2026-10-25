@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Iceghost.Api.Data;
+using Iceghost.Contracts;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Iceghost.Tests;
 
@@ -12,9 +15,9 @@ public class UiEndpointsTests
     const string Pw = "correct horse battery";
     static readonly object EnvLock = new();
 
-    static WebApplicationFactory<Program> Make(string? password = Pw)
+    static WebApplicationFactory<Program> Make(string? password = Pw, string? dir = null)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "ig-ui-" + Guid.NewGuid().ToString("N"));
+        dir ??= Path.Combine(Path.GetTempPath(), "ig-ui-" + Guid.NewGuid().ToString("N"));
         lock (EnvLock)
         {
             Environment.SetEnvironmentVariable("ICEGHOST_DATA", dir);
@@ -143,5 +146,39 @@ public class UiEndpointsTests
             var ex = Assert.ThrowsAny<Exception>(() => Make(pw ?? ""));
             Assert.Contains("ICEGHOST_ADMIN_PASSWORD", ex.ToString());
         }
+    }
+
+    static async Task<HttpResponseMessage> MessageTo(DateTimeOffset lastSeen)
+    {
+        using var f = Make();
+        var store = f.Services.GetRequiredService<IceStore>();
+        var (id, _) = store.CreateMachine("desk");
+        store.ApplyReport(id, new("h", "linux", [new(Runtime.Claude, "s1", "/p", "t", SessionState.Done, lastSeen, [])]), lastSeen);
+        var (c, _) = await LoggedIn(f);
+        return await c.PostAsJsonAsync($"/api/sessions/{id}/s1/messages", new { text = "hi" });
+    }
+
+    [Fact]
+    public async Task Message_to_offline_machine_409()
+    {
+        var r = await MessageTo(DateTimeOffset.UtcNow.AddMinutes(-3));
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.StartsWith("machine offline: desk last seen ", (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Message_to_online_machine_202() =>
+        Assert.Equal(HttpStatusCode.Accepted, (await MessageTo(DateTimeOffset.UtcNow.AddSeconds(-10))).StatusCode);
+
+    [Fact]
+    public async Task Cookie_survives_restart()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ig-ui-" + Guid.NewGuid().ToString("N"));
+        string cookie;
+        using (var f1 = Make(dir: dir)) cookie = (await LoggedIn(f1)).setCookie.Split(';')[0];
+        using var f2 = Make(dir: dir);
+        var c = f2.CreateClient();
+        c.DefaultRequestHeaders.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/machines")).StatusCode);
     }
 }
