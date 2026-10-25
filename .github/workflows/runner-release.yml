@@ -67,6 +67,12 @@ jobs:
         run: |
           dotnet publish src/Iceghost.Runner -c Release -r "${{ matrix.rid }}" --self-contained true -p:PublishSingleFile=true -o publish
           rm -f publish/*.pdb
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            mv publish/Iceghost.Runner.exe publish/iceghost-runner.exe
+          else
+            mv publish/Iceghost.Runner publish/iceghost-runner
+            chmod +x publish/iceghost-runner
+          fi
           cp README.md publish/
           archive="iceghost-runner-${RELEASE_TAG}-${{ matrix.rid }}.${{ matrix.extension }}"
           if [[ "${{ matrix.extension }}" == "zip" ]]; then

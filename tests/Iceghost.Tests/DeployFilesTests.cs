@@ -23,6 +23,12 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Release_renames_binary()
+    {
+        Assert.Contains("iceghost-runner.exe", Read(".github/workflows/runner-release.yml"));
+    }
+
+    [Fact]
     public void Manifest_host()
     {
         Assert.Contains("host: iceghost.example.com", Read("deploy/kubernetes.yaml"));
