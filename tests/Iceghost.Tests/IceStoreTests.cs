@@ -65,6 +65,19 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Reenrolled_host_clears_ghost_sessions()
+    {
+        var s = Store(); var (old, _) = s.CreateMachine("old"); var (fresh, _) = s.CreateMachine("new"); var (other, _) = s.CreateMachine("other");
+        s.ApplyReport(old, Full(Sess("s1")), T);
+        s.ApplyReport(other, new("OTHER", "linux", [Sess("s2")]), T);
+        s.ApplyReport(fresh, Full(Sess("s3")), T.AddMinutes(1)); // old still online (<2 min): kept
+        Assert.Equal(["s1", "s2", "s3"], s.ListSessions(T).Select(r => r.SessionId).Order());
+        s.ApplyReport(fresh, new("H", "linux", [Sess("s3")]), T.AddMinutes(3));
+        Assert.Equal(["s2", "s3"], s.ListSessions(T).Select(r => r.SessionId).Order());
+        Assert.Equal(3, s.ListMachines().Count);
+    }
+
+    [Fact]
     public void Enqueue_unknown_session_null()
     {
         var s = Store(); var (id, _) = s.CreateMachine("d");

@@ -10,10 +10,12 @@ public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime,
 public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
 public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
+public sealed class MachineOfflineException(string message) : Exception(message);
 
 public sealed class IceStore
 {
     static readonly TimeSpan DeliveredTimeout = TimeSpan.FromHours(6);
+    static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(2);
     static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMinutes(3);
     readonly DbContextOptions<IceDb> _opts;
 
@@ -65,6 +67,11 @@ public sealed class IceStore
         if (r.Sessions is not null)
         {
             db.Sessions.RemoveRange(db.Sessions.Where(s => s.MachineId == machineId));
+            // a re-enrolled PC leaves a stale twin (same hostname) whose sessions can never be served: drop them, keep the machine row
+            var ghosts = db.Machines.AsEnumerable()
+                .Where(o => o.Id != machineId && string.Equals(o.Hostname, r.Hostname, StringComparison.OrdinalIgnoreCase) && o.Hostname is not null && !(o.LastSeen > now - OnlineWindow))
+                .Select(o => o.Id).ToList();
+            if (ghosts.Count > 0) db.Sessions.RemoveRange(db.Sessions.Where(s => ghosts.Contains(s.MachineId)));
             foreach (var s in r.Sessions.GroupBy(s => s.SessionId).Select(g => g.Last()))
                 db.Sessions.Add(new SessionEntity
                 {
@@ -112,6 +119,9 @@ public sealed class IceStore
         using var db = Db();
         var s = db.Sessions.Find(machineId, sessionId);
         if (s is null) return null;
+        var m = db.Machines.Find(machineId);
+        if (m?.LastSeen is not { } seen || now - seen > OnlineWindow)
+            throw new MachineOfflineException($"machine offline: {m?.Name} last seen {(m?.LastSeen is { } l ? l.ToString("o") : "never")}");
         var c = new CommandEntity { MachineId = machineId, SessionId = sessionId, Runtime = s.Runtime, Cwd = s.Cwd, Text = text, CreatedAt = now };
         db.Commands.Add(c);
         db.SaveChanges();
