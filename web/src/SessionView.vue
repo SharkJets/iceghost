@@ -89,8 +89,8 @@ const dismiss = guard(async (id: number) => {
       <span class="text-xs text-slate-400">Last active {{ ago(d.session.lastActivity, now) }}</span>
     </div>
     <div class="grid gap-4 lg:grid-cols-3">
-      <section class="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/70 lg:col-span-2">
-        <div ref="body" class="max-h-[60vh] min-h-48 space-y-4 overflow-y-auto p-4">
+      <section class="flex min-w-0 flex-col rounded-xl lg:overflow-hidden border border-slate-700/60 bg-slate-900/70 lg:col-span-2">
+        <div ref="body" class="min-h-48 space-y-4 p-4 lg:max-h-[60vh] lg:overflow-y-auto">
           <p v-if="!tail.length" class="text-sm text-slate-500">No messages yet.</p>
           <div v-for="(e, i) in tail" :key="i" class="flex gap-3">
             <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">
@@ -103,7 +103,7 @@ const dismiss = guard(async (id: number) => {
             </div>
           </div>
         </div>
-        <div class="border-t border-slate-700/60 p-3">
+        <div class="sticky top-0 z-10 order-first rounded-t-xl border-b border-slate-700/60 bg-slate-900 p-3 lg:static lg:order-none lg:rounded-none lg:border-b-0 lg:border-t lg:bg-transparent">
           <p v-if="offline" class="mb-2 rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
           <div class="rounded-lg border border-slate-600 bg-slate-950/60 p-2">
             <textarea ref="ta" v-model="text" rows="3" placeholder="Type a message to the agent..." class="w-full resize-none bg-transparent text-sm outline-none"
