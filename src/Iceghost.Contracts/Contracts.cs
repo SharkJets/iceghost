@@ -10,15 +10,18 @@ public sealed record SessionSnapshot(Runtime Runtime, string SessionId, string C
 {
     /// <summary>Permission mode the user chose for the session (null = default).</summary>
     public string? Permission { get; init; }
+    public string? LastAction { get; init; }
 }
 public sealed record SessionReport(Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, IReadOnlyList<TranscriptEntry> Tail)
 {
     public string? Permission { get; init; }
+    public string? LastAction { get; init; }
 }
 public sealed record RunnerReport(string Hostname, string Os, IReadOnlyList<SessionReport>? Sessions); // null = heartbeat, no change
 public sealed record RunnerCommand(long Id, Runtime Runtime, string SessionId, string Cwd, string Text)
 {
     public string? Permission { get; init; }
+    public string? LastAction { get; init; }
 }
 public sealed record CommandResult(bool Ok, string Output);
 public static class IceJson
