@@ -17,6 +17,9 @@ public sealed class RunnerLoop(
 {
     private static readonly TimeSpan ScanEvery = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan FullEvery = TimeSpan.FromMinutes(5);
+    // ponytail: reports replace the whole list server-side, so a live transcript would resend every session each poll;
+    // activity-only changes (tail, LastActivity, LastAction) are batched to this period. Per-session deltas need a server API change.
+    private static readonly TimeSpan ActivityEvery = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan HeartbeatEvery = TimeSpan.FromSeconds(15);
 
     private readonly TimeSpan _idle = idleTimeout ?? TimeSpan.FromMinutes(30);
@@ -29,6 +32,7 @@ public sealed class RunnerLoop(
     private volatile UnauthorizedRunnerException? _fatal;
 
     private string? _lastHash;
+    private string? _lastKey;
     private DateTimeOffset _lastFull;
     private bool _force;
 
@@ -182,13 +186,19 @@ public sealed class RunnerLoop(
             if (running.Count > 0)
                 sessions = sessions.Select(s => running.Contains((s.Runtime, s.SessionId))
                     ? s with { State = SessionState.Working } : s).ToList();
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(sessions, IceJson.Options))));
-            var full = running.Count > 0 || _force || hash != _lastHash || now - _lastFull >= FullEvery;
+            var sorted = sessions.OrderBy(s => s.Runtime).ThenBy(s => s.SessionId, StringComparer.Ordinal).ToList(); // scan order is by mtime: a write reorders
+            var hash = Hash(sorted);
+            var key = Hash(sorted.Select(s => s with { LastActivity = default, Tail = [], LastAction = null }).ToList()); // set, states, titles
+            var full = running.Count > 0 || _force || key != _lastKey || now - _lastFull >= FullEvery
+                || (hash != _lastHash && now - _lastFull >= ActivityEvery);
             await client.ReportAsync(new RunnerReport(Environment.MachineName, RuntimeInformation.OSDescription, full ? sessions : null), ct);
-            if (running.Count > 0) { _lastHash = null; return; } // transient Working override: next report must be full
-            if (full) { _lastHash = hash; _lastFull = now; }
+            if (running.Count > 0) { _lastHash = _lastKey = null; return; } // transient Working override: next report must be full
+            if (full) { _lastHash = hash; _lastKey = key; _lastFull = now; }
             _force = false;
         }
         finally { _reportGate.Release(); }
     }
+
+    private static string Hash(IReadOnlyList<SessionReport> s) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(s, IceJson.Options))));
 }

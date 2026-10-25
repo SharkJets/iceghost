@@ -322,4 +322,69 @@ public class RunnerLoopTests
         cts.Cancel(); await run;
         Assert.Equal(new CommandResult(true, "done 1"), Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/1/result")).Body));
     }
+
+    // Real transcript files read by the real SessionScanner/TranscriptReader/StateClassifier.
+    private sealed class Tree : IDisposable
+    {
+        public readonly string Dir = Directory.CreateTempSubdirectory("igl").FullName;
+        public static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch.AddDays(1); // Make()'s fake clock start
+        public readonly Iceghost.Runner.Scanning.SessionScanner Scanner;
+        public Tree() => Scanner = new(new(Path.Combine(Dir, "c"), Path.Combine(Dir, "x"), Path.Combine(Dir, "p")), Iceghost.Runner.Scanning.TranscriptReader.Read);
+        public static string Line(string id, string type, string text, TimeSpan ago, string? stop = null) => JsonSerializer.Serialize(new
+        {
+            type, sessionId = id, cwd = @"C:\p", timestamp = (Now - ago).ToString("o"),
+            message = new { role = type, content = text, stop_reason = stop },
+        });
+        public void Write(string id, params string[] lines)
+        {
+            var p = Path.Combine(Dir, "c", "proj", id + ".jsonl");
+            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+            File.AppendAllLines(p, lines);
+        }
+        public void Dispose() { try { Directory.Delete(Dir, true); } catch { } }
+    }
+
+    private static List<RunnerReport> Reports(Handler h) =>
+        h.Snapshot().Where(c => c.Path.EndsWith("report")).Select(c => Body<RunnerReport>(c.Body)).ToList();
+
+    [Fact]
+    public async Task Unchanged_scan_sends_heartbeat_only()
+    {
+        using var tree = new Tree();
+        tree.Write("a", Tree.Line("a", "user", "hi", TimeSpan.FromMinutes(30)), Tree.Line("a", "assistant", "done", TimeSpan.FromMinutes(29), "end_turn"));
+        tree.Write("b", Tree.Line("b", "user", "hello there", TimeSpan.FromSeconds(30))); // working
+        tree.Write("c", Tree.Line("c", "user", "q", TimeSpan.FromHours(2)), Tree.Line("c", "assistant", "Ship it?", TimeSpan.FromHours(2), "end_turn"));
+        var (loop, h, t) = Make(Server(), scan: _ => tree.Scanner.Scan);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => Reports(h).Count >= 3);
+        cts.Cancel(); await run;
+        var reports = Reports(h);
+        Assert.Equal(3, reports[0].Sessions!.Count);
+        Assert.Null(reports[1].Sessions);
+        Assert.Null(reports[2].Sessions);
+    }
+
+    [Fact]
+    public async Task Activity_only_change_is_throttled_state_change_is_not()
+    {
+        using var tree = new Tree();
+        tree.Write("a", Tree.Line("a", "user", "hi", TimeSpan.FromMinutes(30)), Tree.Line("a", "assistant", "done", TimeSpan.FromMinutes(29), "end_turn"));
+        tree.Write("b", Tree.Line("b", "user", "go", TimeSpan.FromSeconds(30)));
+        var (loop, h, t) = Make(Server(), scan: _ => tree.Scanner.Scan);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => Reports(h).Count >= 1);
+        tree.Write("b", Tree.Line("b", "assistant", "working on it", TimeSpan.Zero)); // still Working: only tail/LastActivity moved
+        await Pump(t, () => Reports(h).Count >= 2);
+        Assert.Null(Reports(h)[1].Sessions);
+        await Pump(t, () => Reports(h).Count(r => r.Sessions is not null) >= 2); // activity still arrives, just batched
+        var full = Reports(h).Last(r => r.Sessions is not null);
+        Assert.Equal("working on it", full.Sessions!.Single(s => s.SessionId == "b").Tail[^1].Text);
+        var n = Reports(h).Count;
+        tree.Write("b", Tree.Line("b", "assistant", "all done", TimeSpan.Zero, "end_turn")); // Working -> Done
+        await Pump(t, () => Reports(h).Count > n);
+        cts.Cancel(); await run;
+        Assert.Equal(SessionState.Done, Reports(h)[n].Sessions!.Single(s => s.SessionId == "b").State);
+    }
 }
