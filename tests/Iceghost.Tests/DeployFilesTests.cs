@@ -52,6 +52,28 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Gitignore_does_not_hide_source_dirs()
+    {
+        System.Diagnostics.Process? p = null;
+        try
+        {
+            p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git", "check-ignore -q src/Iceghost.Api/Data/IceStore.cs")
+            {
+                WorkingDirectory = Root,
+                UseShellExecute = false,
+                RedirectStandardError = true,
+            });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            if (Environment.GetEnvironmentVariable("CI") is not null) throw;
+            return; // git unavailable locally
+        }
+        p!.WaitForExit();
+        Assert.Equal(1, p.ExitCode); // 1 = not ignored
+    }
+
+    [Fact]
     public void Release_six_rids()
     {
         var text = Read(".github/workflows/runner-release.yml");
