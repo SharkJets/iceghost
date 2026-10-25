@@ -1,0 +1,25 @@
+{
+  "name": "iceghost-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Iceghost desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.sharkjets.iceghost",
+    "productName": "Iceghost",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "url.js"],
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"] },
+    "linux": { "target": ["AppImage"] }
+  }
+}
