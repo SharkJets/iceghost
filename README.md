@@ -10,6 +10,12 @@ You start a long agent session on a PC and walk away. It finishes, or it stops t
 
 There is no hook or plugin in the agent CLIs. A small runner on each PC reads the transcript files the CLIs already write.
 
+| Sessions across your machines | One session: reply, follow progress |
+| --- | --- |
+| ![Session list grouped by state, with the last action of working and stalled sessions](docs/images/screenshot-sessions.png) | ![Session page with the message box on top, sent messages and the transcript newest first](docs/images/screenshot-session.png) |
+
+<sub>Screenshots use sample data.</sub>
+
 ## How it works
 
 ```mermaid
