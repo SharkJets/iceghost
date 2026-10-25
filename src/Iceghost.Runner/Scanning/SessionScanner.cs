@@ -20,6 +20,9 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
 {
     const int MaxFiles = 50;
     static readonly TimeSpan MaxAge = TimeSpan.FromDays(14);
+    const long BigFile = 4 << 20, TailBytes = 1 << 20;
+    const int HeadLines = 50;
+    readonly Dictionary<string, (DateTime Mtime, long Len, SessionSnapshot? Snap)> cache = new();
 
     public IReadOnlyList<SessionReport> Scan(DateTimeOffset now)
     {
@@ -42,12 +45,20 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
         }
 
         var reports = new List<SessionReport>();
-        foreach (var f in files.OrderByDescending(f => f.Mtime).Take(MaxFiles))
+        var picked = files.OrderByDescending(f => f.Mtime).Take(MaxFiles).ToList();
+        var keep = picked.Select(f => f.Path).ToHashSet();
+        foreach (var k in cache.Keys.Where(k => !keep.Contains(k)).ToList()) cache.Remove(k);
+        foreach (var f in picked)
         {
             try
             {
-                var lines = ReadLines(f.Path);
-                if (read(f.Rt, lines) is { } s)
+                var len = new FileInfo(f.Path).Length;
+                if (!cache.TryGetValue(f.Path, out var c) || c.Mtime != f.Mtime || c.Len != len)
+                {
+                    c = (f.Mtime, len, read(f.Rt, ReadLines(f.Path, len)));
+                    cache[f.Path] = c;
+                }
+                if (c.Snap is { } s)
                     reports.Add(new(s.Runtime, s.SessionId, s.Cwd, s.Title, StateClassifier.Classify(s, now), s.LastActivity, s.Tail));
             }
             catch (IOException) { } // ponytail: file vanished or unreadable, skipped until next scan
@@ -56,12 +67,22 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
         return reports;
     }
 
-    static List<string> ReadLines(string path)
+    static List<string> ReadLines(string path, long len)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var sr = new StreamReader(fs);
         var lines = new List<string>();
-        while (sr.ReadLine() is { } l) lines.Add(l);
+        if (len <= BigFile)
+        {
+            using var sr = new StreamReader(fs);
+            while (sr.ReadLine() is { } l) lines.Add(l);
+            return lines;
+        }
+        using (var head = new StreamReader(fs, leaveOpen: true))
+            for (var i = 0; i < HeadLines && head.ReadLine() is { } l; i++) lines.Add(l);
+        fs.Seek(-TailBytes, SeekOrigin.End);
+        using var tail = new StreamReader(fs);
+        tail.ReadLine(); // partial first line of the chunk
+        while (tail.ReadLine() is { } l) lines.Add(l);
         return lines;
     }
 }

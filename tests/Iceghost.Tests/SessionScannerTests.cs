@@ -73,4 +73,42 @@ public class SessionScannerTests : IDisposable
         Assert.Contains("0", ids);
         Assert.DoesNotContain("55", ids);
     }
+
+    SessionScanner Counting(Action<IReadOnlyList<string>> on) =>
+        new(Roots(), (rt, l) => { on(l); return Snap(true, "Done.", TimeSpan.FromMinutes(1)) with { Runtime = rt }; });
+
+    [Fact]
+    public void Unchanged_file_not_reread()
+    {
+        Make("proj/a.jsonl", TimeSpan.FromMinutes(1));
+        var n = 0;
+        var sc = Counting(_ => n++);
+        sc.Scan(Now); sc.Scan(Now.AddSeconds(15));
+        Assert.Equal(1, n);
+    }
+
+    [Fact]
+    public void Changed_file_reread()
+    {
+        var p = Make("proj/a.jsonl", TimeSpan.FromMinutes(1));
+        var n = 0;
+        var sc = Counting(_ => n++);
+        sc.Scan(Now);
+        File.AppendAllText(p, "{\"x\":1}\n");
+        sc.Scan(Now);
+        Assert.Equal(2, n);
+    }
+
+    [Fact]
+    public void Large_file_head_and_tail()
+    {
+        var content = string.Join("\n",Enumerable.Range(0, 60000).Select(i => $"line{i:D6}-" + new string('x', 70)));
+        var p = Make("proj/a.jsonl", TimeSpan.FromMinutes(1), content);
+        Assert.True(new FileInfo(p).Length > 4 << 20);
+        IReadOnlyList<string>? got = null;
+        Counting(l => got = l).Scan(Now);
+        Assert.StartsWith("line000000-", got![0]);
+        Assert.StartsWith("line059999-", got[^1]);
+        Assert.True(got.Count < 60000);
+    }
 }
