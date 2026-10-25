@@ -99,6 +99,29 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Stale_delivered_expires_on_read()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.Enqueue(id, "s1", "hi", T); s.TakeCommands(id, T);
+        Assert.Equal(1, s.ListSessions(T.AddMinutes(59))[0].PendingCommands);
+        Assert.Equal(0, s.ListSessions(T.AddMinutes(60))[0].PendingCommands);
+        var c = s.GetSession(id, "s1", T.AddMinutes(60))!.Commands[0];
+        Assert.Equal(("failed", "no result from runner"), (c.Status, c.Output));
+    }
+
+    [Fact]
+    public void Concurrent_takes_deliver_once()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        for (var i = 0; i < 20; i++) s.Enqueue(id, "s1", "m" + i, T);
+        var n = Enumerable.Range(0, 4).Select(_ => Task.Run(() => s.TakeCommands(id, T).Count)).ToArray();
+        Task.WaitAll(n);
+        Assert.Equal(20, n.Sum(t => t.Result));
+    }
+
+    [Fact]
     public void Delete_machine_cascades()
     {
         var s = Store(); var (a, _) = s.CreateMachine("a"); var (b, tb) = s.CreateMachine("b");
