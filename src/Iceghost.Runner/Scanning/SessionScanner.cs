@@ -99,7 +99,7 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
                     cache[f.Path] = c;
                 }
                 if (c.Snap is { } s)
-                    reports.Add(new(s.Runtime, s.SessionId, s.Cwd, s.Title, StateClassifier.Classify(s, now), s.LastActivity, s.Tail));
+                    reports.Add(new(s.Runtime, s.SessionId, s.Cwd, s.Title, StateClassifier.Classify(s, now), s.LastActivity, s.Tail) { Permission = s.Permission });
             }
             catch (IOException) { } // ponytail: file vanished or unreadable, skipped until next scan
             catch (UnauthorizedAccessException) { }
