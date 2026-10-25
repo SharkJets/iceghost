@@ -1,0 +1,13 @@
+.git
+.github
+.superlite
+docs
+electron
+tests
+plan.md
+**/bin
+**/obj
+**/node_modules
+**/data
+*.db
+web/dist

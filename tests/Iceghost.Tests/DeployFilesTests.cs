@@ -1,0 +1,44 @@
+using Xunit;
+
+namespace Iceghost.Tests;
+
+public class DeployFilesTests
+{
+    private static readonly string Root = FindRepoRoot();
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Iceghost.slnx")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("Iceghost.slnx not found above " + AppContext.BaseDirectory);
+    }
+
+    private static string Read(string relative) => File.ReadAllText(Path.Combine(Root, relative));
+
+    [Fact]
+    public void Dockerfile_entrypoint()
+    {
+        Assert.Contains("ENTRYPOINT [\"./Iceghost.Api\"]", Read("Dockerfile"));
+    }
+
+    [Fact]
+    public void Manifest_host()
+    {
+        Assert.Contains("host: iceghost.example.com", Read("deploy/kubernetes.yaml"));
+    }
+
+    [Fact]
+    public void Manifest_recreate()
+    {
+        Assert.Contains("type: Recreate", Read("deploy/kubernetes.yaml"));
+    }
+
+    [Fact]
+    public void Release_six_rids()
+    {
+        var text = Read(".github/workflows/runner-release.yml");
+        foreach (var rid in new[] { "linux-x64", "linux-arm64", "osx-x64", "osx-arm64", "win-x64", "win-arm64" })
+            Assert.Contains(rid, text);
+    }
+}

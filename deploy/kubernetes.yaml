@@ -1,0 +1,108 @@
+# Secret: set the admin password before applying (replace REPLACE_ME)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iceghost-secrets
+  namespace: default
+type: Opaque
+stringData:
+  admin-password: REPLACE_ME
+---
+# PersistentVolumeClaim for the SQLite database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iceghost-storage-pvc
+  namespace: default
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: default
+  name: iceghost
+  labels:
+    app: iceghost
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # single SQLite file on a RWO volume: never run two pods at once
+  selector:
+    matchLabels:
+      app: iceghost
+  template:
+    metadata:
+      labels:
+        app: iceghost
+    spec:
+      containers:
+      - name: iceghost
+        image: skidvis/iceghost:latest
+        env:
+        - name: TZ
+          value: UTC
+        - name: ICEGHOST_DATA
+          value: /data
+        - name: ICEGHOST_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: iceghost-secrets
+              key: admin-password
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+        resources:
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: iceghost-storage-volume
+          mountPath: /data
+      volumes:
+      - name: iceghost-storage-volume
+        persistentVolumeClaim:
+          claimName: iceghost-storage-pvc
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceghost
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: iceghost
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iceghost
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: iceghost.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: iceghost
+            port:
+              number: 80

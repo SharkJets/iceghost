@@ -1,0 +1,118 @@
+name: runner-release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish, such as v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet --info
+      - run: dotnet restore Iceghost.slnx
+      - run: dotnet test Iceghost.slnx --no-restore
+
+  publish:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - rid: linux-x64
+            extension: tar.gz
+          - rid: linux-arm64
+            extension: tar.gz
+          - rid: osx-x64
+            extension: tar.gz
+          - rid: osx-arm64
+            extension: tar.gz
+          - rid: win-x64
+            extension: zip
+          - rid: win-arm64
+            extension: zip
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet --info
+      - shell: bash
+        run: |
+          dotnet publish src/Iceghost.Runner -c Release -r "${{ matrix.rid }}" --self-contained true -p:PublishSingleFile=true -o publish
+          rm -f publish/*.pdb
+          cp README.md publish/
+          archive="iceghost-runner-${RELEASE_TAG}-${{ matrix.rid }}.${{ matrix.extension }}"
+          if [[ "${{ matrix.extension }}" == "zip" ]]; then
+            cd publish
+            7z a "../${archive}" .
+            cd ..
+          else
+            tar -C publish -czf "${archive}" .
+          fi
+          sha256sum "${archive}" > "${archive}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iceghost-runner-${{ matrix.rid }}
+          path: |
+            iceghost-runner-*.tar.gz
+            iceghost-runner-*.zip
+            iceghost-runner-*.sha256
+          if-no-files-found: error
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: iceghost-runner-*
+          path: release
+          merge-multiple: true
+      - shell: bash
+        run: |
+          cd release
+          sha256sum --check ./*.sha256
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - shell: bash
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" release/* --verify-tag --generate-notes --title "Iceghost Runner ${RELEASE_TAG}"
+          fi
