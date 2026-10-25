@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Iceghost.Api.Data;
 using Iceghost.Api.Endpoints;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -14,6 +15,9 @@ builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 4 * 1024 * 1
 var dataDir = Environment.GetEnvironmentVariable("ICEGHOST_DATA") ?? "./data";
 Directory.CreateDirectory(dataDir);
 builder.Services.AddSingleton(new IceStore(Path.Combine(dataDir, "iceghost.db")));
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")))
+    .SetApplicationName("iceghost");
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
