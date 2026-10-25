@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Iceghost.Api.Data;
 
-public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands);
+public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null);
 public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
 public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
@@ -26,6 +26,8 @@ public sealed class IceStore
         var cols = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Commands')").ToList();
         foreach (var col in new[] { "StartedAt", "HeartbeatAt" })
             if (!cols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Commands ADD COLUMN {col} TEXT NULL");
+        if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Sessions')").ToList().Contains("LastAction"))
+            db.Database.ExecuteSqlRaw("ALTER TABLE Sessions ADD COLUMN LastAction TEXT NULL");
     }
 
     IceDb Db() => new(_opts);
@@ -67,15 +69,17 @@ public sealed class IceStore
                 db.Sessions.Add(new SessionEntity
                 {
                     MachineId = machineId, SessionId = s.SessionId, Runtime = s.Runtime, Cwd = s.Cwd, Title = s.Title,
-                    State = s.State, LastActivity = s.LastActivity,
+                    State = s.State, LastActivity = s.LastActivity, LastAction = Cap(s.LastAction),
                     TailJson = JsonSerializer.Serialize(s.Tail, IceJson.Options),
                 });
         }
         db.SaveChanges();
     }
 
+    static string? Cap(string? a) => a is { Length: > 140 } ? a[..139] + "…" : a;
+
     static SessionRow ToRow(SessionEntity s, string machine, int pending) =>
-        new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending);
+        new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending, Cap(s.LastAction));
 
     public IReadOnlyList<SessionRow> ListSessions(DateTimeOffset now)
     {

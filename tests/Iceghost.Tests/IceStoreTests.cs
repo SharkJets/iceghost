@@ -206,4 +206,32 @@ public sealed class IceStoreTests : IDisposable
         Assert.True(s2.Heartbeat(id, 1, T));
         Assert.Equal("running", s2.GetSession(id, "s1", T)!.Commands[0].Status);
     }
+
+    [Fact]
+    public void Last_action_saved_and_listed()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1") with { LastAction = new string('x', 200) }, Sess("s2")), T);
+        var rows = s.ListSessions(T).ToDictionary(r => r.SessionId);
+        Assert.Equal(140, rows["s1"].LastAction!.Length);
+        Assert.EndsWith("…", rows["s1"].LastAction);
+        Assert.Null(rows["s2"].LastAction);
+    }
+
+    [Fact]
+    public void Existing_db_gets_last_action_column()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "ALTER TABLE Sessions DROP COLUMN LastAction;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s2 = Store();
+        s2.ApplyReport(id, Full(Sess("s1") with { LastAction = "Bash: ls" }), T);
+        Assert.Equal("Bash: ls", s2.ListSessions(T)[0].LastAction);
+    }
 }

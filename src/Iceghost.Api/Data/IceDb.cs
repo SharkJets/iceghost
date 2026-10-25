@@ -23,6 +23,7 @@ public sealed class SessionEntity
     public SessionState State { get; set; }
     public DateTimeOffset LastActivity { get; set; }
     public string TailJson { get; set; } = "[]";
+    public string? LastAction { get; set; }
 }
 
 public sealed class CommandEntity
