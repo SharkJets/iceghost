@@ -1,0 +1,159 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Iceghost.Contracts;
+using Microsoft.EntityFrameworkCore;
+
+namespace Iceghost.Api.Data;
+
+public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands);
+public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt);
+public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
+public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
+
+public sealed class IceStore
+{
+    static readonly TimeSpan DeliveredTimeout = TimeSpan.FromMinutes(60);
+    readonly DbContextOptions<IceDb> _opts;
+
+    public IceStore(string dbPath)
+    {
+        _opts = new DbContextOptionsBuilder<IceDb>().UseSqlite($"Data Source={dbPath}").Options;
+        // ponytail: EnsureCreated, add migrations at the first schema change
+        using var db = Db();
+        db.Database.EnsureCreated();
+    }
+
+    IceDb Db() => new(_opts);
+
+    static string Hash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
+    static string Base64Url(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public (long Id, string Token) CreateMachine(string name)
+    {
+        var token = Base64Url(RandomNumberGenerator.GetBytes(32));
+        using var db = Db();
+        var m = new MachineEntity { Name = name, TokenHash = Hash(token) };
+        db.Machines.Add(m);
+        db.SaveChanges();
+        return (m.Id, token);
+    }
+
+    public long? Authenticate(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return null;
+        var h = Hash(token);
+        using var db = Db();
+        return db.Machines.Where(m => m.TokenHash == h).Select(m => (long?)m.Id).FirstOrDefault();
+    }
+
+    public void ApplyReport(long machineId, RunnerReport r, DateTimeOffset now)
+    {
+        using var db = Db();
+        var m = db.Machines.Find(machineId);
+        if (m is null) return;
+        m.Hostname = r.Hostname;
+        m.Os = r.Os;
+        m.LastSeen = now;
+        if (r.Sessions is not null)
+        {
+            db.Sessions.RemoveRange(db.Sessions.Where(s => s.MachineId == machineId));
+            foreach (var s in r.Sessions.GroupBy(s => s.SessionId).Select(g => g.Last()))
+                db.Sessions.Add(new SessionEntity
+                {
+                    MachineId = machineId, SessionId = s.SessionId, Runtime = s.Runtime, Cwd = s.Cwd, Title = s.Title,
+                    State = s.State, LastActivity = s.LastActivity,
+                    TailJson = JsonSerializer.Serialize(s.Tail, IceJson.Options),
+                });
+        }
+        db.SaveChanges();
+    }
+
+    static SessionRow ToRow(SessionEntity s, string machine, int pending) =>
+        new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending);
+
+    public IReadOnlyList<SessionRow> ListSessions(DateTimeOffset now)
+    {
+        using var db = Db();
+        Expire(db, now, null);
+        var names = db.Machines.ToDictionary(m => m.Id, m => m.Name);
+        var pend = db.Commands.Where(c => c.Status == "queued" || c.Status == "delivered")
+            .GroupBy(c => new { c.MachineId, c.SessionId }).Select(g => new { g.Key.MachineId, g.Key.SessionId, N = g.Count() })
+            .ToList().ToDictionary(x => (x.MachineId, x.SessionId), x => x.N);
+        return db.Sessions.AsEnumerable()
+            .Select(s => ToRow(s, names.GetValueOrDefault(s.MachineId, ""), pend.GetValueOrDefault((s.MachineId, s.SessionId))))
+            .OrderByDescending(r => r.LastActivity).ToList();
+    }
+
+    public SessionDetail? GetSession(long machineId, string sessionId, DateTimeOffset now)
+    {
+        using var db = Db();
+        var s = db.Sessions.Find(machineId, sessionId);
+        if (s is null) return null;
+        Expire(db, now, machineId);
+        var name = db.Machines.Where(m => m.Id == machineId).Select(m => m.Name).FirstOrDefault() ?? "";
+        var cmds = db.Commands.Where(c => c.MachineId == machineId && c.SessionId == sessionId).OrderBy(c => c.Id).ToList();
+        var pending = cmds.Count(c => c.Status is "queued" or "delivered");
+        var tail = JsonSerializer.Deserialize<List<TranscriptEntry>>(s.TailJson, IceJson.Options) ?? [];
+        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt)).ToList());
+    }
+
+    public long? Enqueue(long machineId, string sessionId, string text, DateTimeOffset now)
+    {
+        using var db = Db();
+        var s = db.Sessions.Find(machineId, sessionId);
+        if (s is null) return null;
+        var c = new CommandEntity { MachineId = machineId, SessionId = sessionId, Runtime = s.Runtime, Cwd = s.Cwd, Text = text, CreatedAt = now };
+        db.Commands.Add(c);
+        db.SaveChanges();
+        return c.Id;
+    }
+
+    static void Expire(IceDb db, DateTimeOffset now, long? machineId)
+    {
+        var stale = db.Commands.Where(c => c.Status == "delivered" && (machineId == null || c.MachineId == machineId)).AsEnumerable()
+            .Where(c => now - c.DeliveredAt >= DeliveredTimeout).Select(c => c.Id).ToList();
+        foreach (var id in stale)
+            db.Commands.Where(c => c.Id == id && c.Status == "delivered")
+                .ExecuteUpdate(u => u.SetProperty(c => c.Status, "failed").SetProperty(c => c.Output, "no result from runner"));
+    }
+
+    public IReadOnlyList<RunnerCommand> TakeCommands(long machineId, DateTimeOffset now)
+    {
+        using var db = Db();
+        Expire(db, now, machineId);
+        var taken = new List<CommandEntity>();
+        foreach (var c in db.Commands.Where(c => c.MachineId == machineId && c.Status == "queued").OrderBy(c => c.Id).ToList())
+            // atomic claim: only one concurrent poll flips queued -> delivered
+            if (db.Commands.Where(x => x.Id == c.Id && x.Status == "queued").ExecuteUpdate(u => u.SetProperty(x => x.Status, "delivered").SetProperty(x => x.DeliveredAt, now)) == 1)
+                taken.Add(c);
+        return taken.Select(c => new RunnerCommand(c.Id, c.Runtime, c.SessionId, c.Cwd, c.Text)).ToList();
+    }
+
+    public bool Complete(long machineId, long commandId, CommandResult r, DateTimeOffset now)
+    {
+        using var db = Db();
+        var c = db.Commands.FirstOrDefault(c => c.Id == commandId && c.MachineId == machineId && c.Status == "delivered");
+        if (c is null) return false;
+        c.Status = r.Ok ? "done" : "failed";
+        c.Output = r.Output;
+        db.SaveChanges();
+        return true;
+    }
+
+    public IReadOnlyList<MachineRow> ListMachines()
+    {
+        using var db = Db();
+        return db.Machines.OrderBy(m => m.Id).AsEnumerable().Select(m => new MachineRow(m.Id, m.Name, m.Hostname, m.Os, m.LastSeen)).ToList();
+    }
+
+    public bool DeleteMachine(long id)
+    {
+        using var db = Db();
+        // explicit deletes too, so cascade never depends on the FK pragma
+        db.Sessions.Where(s => s.MachineId == id).ExecuteDelete();
+        db.Commands.Where(c => c.MachineId == id).ExecuteDelete();
+        return db.Machines.Where(m => m.Id == id).ExecuteDelete() > 0;
+    }
+}
