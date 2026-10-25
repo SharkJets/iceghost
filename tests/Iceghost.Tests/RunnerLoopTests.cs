@@ -113,7 +113,7 @@ public class RunnerLoopTests
     [Fact]
     public async Task Result_posted_when_adapter_fails()
     {
-        var (loop, h, t) = Make(Server(new RunnerCommand(9, Runtime.Codex, "s1", "C:\\p", "hi")), _ => new Throwing());
+        var (loop, h, t) = Make(Server(new RunnerCommand(9, Runtime.Claude, "s1", "C:\\p", "hi")), _ => new Throwing());
         using var cts = new CancellationTokenSource();
         var run = loop.RunAsync(cts.Token);
         await Pump(t, () => h.Snapshot().Any(c => c.Path.EndsWith("/9/result")));
@@ -121,6 +121,35 @@ public class RunnerLoopTests
         var res = Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/9/result")).Body);
         Assert.False(res.Ok);
         Assert.Contains("boom", res.Output);
+    }
+
+    [Fact]
+    public async Task Unknown_session_rejected()
+    {
+        var ran = false;
+        var (loop, h, t) = Make(Server(new RunnerCommand(11, Runtime.Claude, "nope", "C:\\p", "hi")),
+            _ => new FakeRuntimeAdapter(_ => { ran = true; return new(true, ""); }));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Any(c => c.Path.EndsWith("/11/result")));
+        cts.Cancel(); await run;
+        var res = Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/11/result")).Body);
+        Assert.False(res.Ok);
+        Assert.Equal("unknown session on this machine", res.Output);
+        Assert.False(ran);
+    }
+
+    [Fact]
+    public async Task Uses_local_cwd_not_server_cwd()
+    {
+        string? cwd = null;
+        var (loop, h, t) = Make(Server(new RunnerCommand(12, Runtime.Claude, "s1", "C:\\evil", "hi")),
+            _ => new FakeRuntimeAdapter(c => { cwd = c.Cwd; return new(true, ""); }));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Any(c => c.Path.EndsWith("/12/result")));
+        cts.Cancel(); await run;
+        Assert.Equal("C:\\p", cwd);
     }
 
     [Fact]

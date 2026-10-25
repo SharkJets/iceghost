@@ -51,6 +51,15 @@ public sealed class RunnerLoop(
 
     private async Task ExecuteAsync(RunnerCommand cmd, CancellationToken ct)
     {
+        // never trust server-sent Runtime/Cwd: only run for sessions this machine actually scanned
+        var known = scan(time.GetUtcNow()).FirstOrDefault(s => s.Runtime == cmd.Runtime && s.SessionId == cmd.SessionId);
+        if (known is null)
+        {
+            await client.ResultAsync(cmd.Id, new CommandResult(false, "unknown session on this machine"), ct);
+            return;
+        }
+        cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd };
+
         try { await ReportAsync(cmd, ct); } // show the session as Working while it runs
         catch (Exception e) when (e is not UnauthorizedRunnerException && !ct.IsCancellationRequested) { }
 
