@@ -42,7 +42,7 @@ public static class Program
             return 2;
         }
 
-        var timeout = TimeSpan.FromMinutes(cfg.TimeoutMinutes);
+        var maxTurn = TimeSpan.FromMinutes(cfg.MaxTurnMinutes); // hard cap handed to the adapter; TimeoutMinutes is the idle limit
         using var http = new HttpClient { BaseAddress = new Uri(cfg.Server) };
         var client = new ServerClient(http, cfg.Token);
         var roots = ScanRoots.Default(cfg.Roots);
@@ -51,8 +51,8 @@ public static class Program
                 Console.WriteLine($"{rt}: {r}{(Directory.Exists(r) ? "" : " (missing)")}");
         var scanner = new SessionScanner(roots, TranscriptReader.Read);
         var loop = new RunnerLoop(client, scanner.Scan,
-            runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), timeout),
-            TimeProvider.System);
+            runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), maxTurn),
+            TimeProvider.System, Math.Max(1, cfg.MaxParallel), TimeSpan.FromMinutes(cfg.TimeoutMinutes));
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>

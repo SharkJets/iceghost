@@ -40,6 +40,18 @@ public class RunnerConfigTests : IDisposable
     }
 
     [Fact]
+    public void Parallel_and_turn_cap_roundtrip_and_old_config_loads()
+    {
+        RunnerConfig.Save(_dir, new RunnerConfig("https://x", "t", new(), 30, null, 2, 90));
+        var c = RunnerConfig.Load(_dir)!;
+        Assert.Equal((2, 90), (c.MaxParallel, c.MaxTurnMinutes));
+
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"server":"https://x","token":"t","extraArgs":{},"timeoutMinutes":30}""");
+        c = RunnerConfig.Load(_dir)!;
+        Assert.Equal((4, 360), (c.MaxParallel, c.MaxTurnMinutes));
+    }
+
+    [Fact]
     public async Task Corrupt_config_exits_2_with_message()
     {
         Directory.CreateDirectory(_dir);
