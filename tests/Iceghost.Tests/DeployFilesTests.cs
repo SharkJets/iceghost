@@ -29,6 +29,14 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Release_builds_desktop()
+    {
+        var text = Read(".github/workflows/runner-release.yml");
+        Assert.Contains("electron-builder", text);
+        Assert.Contains("iceghost-desktop-", text);
+    }
+
+    [Fact]
     public void Manifest_host()
     {
         Assert.Contains("host: iceghost.example.com", Read("deploy/kubernetes.yaml"));

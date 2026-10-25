@@ -92,8 +92,53 @@ jobs:
             iceghost-runner-*.sha256
           if-no-files-found: error
 
+  desktop:
+    needs: test
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+      - shell: bash
+        working-directory: electron
+        run: |
+          npm ci
+          npm version "${RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
+          npx electron-builder --publish never
+      - shell: bash
+        working-directory: electron/dist
+        run: |
+          prefix="iceghost-desktop-${RELEASE_TAG}"
+          case "${{ runner.os }}" in
+            Windows) mv ./*.exe "${prefix}-win-x64-setup.exe" ;;
+            macOS)
+              dmg=$(ls ./*.dmg | head -n1)
+              arch=$([[ "$dmg" == *arm64* ]] && echo arm64 || echo x64)
+              mv "$dmg" "${prefix}-mac-${arch}.dmg" ;;
+            Linux) mv ./*.AppImage "${prefix}-linux-x64.AppImage" ;;
+          esac
+          for f in "${prefix}"-*; do
+            sha256sum "$f" > "$f.sha256" 2>/dev/null || shasum -a 256 "$f" > "$f.sha256"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iceghost-desktop-${{ runner.os }}
+          path: electron/dist/iceghost-desktop-*
+          if-no-files-found: error
+
   release:
-    needs: publish
+    needs: [publish, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,11 +155,16 @@ jobs:
           pattern: iceghost-runner-*
           path: release
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: iceghost-desktop-*
+          path: release
+          merge-multiple: true
       - shell: bash
         run: |
           cd release
           sha256sum --check ./*.sha256
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
       - shell: bash
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
