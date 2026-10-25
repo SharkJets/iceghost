@@ -3,7 +3,6 @@ using System.Text.Json;
 namespace Iceghost.Runner.Scanning;
 
 using Iceghost.Contracts;
-using Runtime = Iceghost.Contracts.Runtime; // Iceghost.Runner.Runtime namespace would shadow the enum
 
 /// <summary>Parses transcript JSONL lines (claude, codex, pi) into a snapshot. Never throws on bad lines.</summary>
 public static class TranscriptReader
