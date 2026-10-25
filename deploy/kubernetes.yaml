@@ -1,12 +1,6 @@
-# Secret: set the admin password before applying (replace REPLACE_ME)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: iceghost-secrets
-  namespace: default
-type: Opaque
-stringData:
-  admin-password: REPLACE_ME
+# The Secret `iceghost-secrets` (key: admin-password) is NOT in this file. Create it out of band, e.g.
+#   kubectl create secret generic iceghost-secrets --from-literal=admin-password=...
+# or as a sealed/SOPS secret in the private gitops repo. Never commit it here.
 ---
 # PersistentVolumeClaim for the SQLite database
 apiVersion: v1

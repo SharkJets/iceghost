@@ -35,6 +35,20 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Manifest_has_no_secret_object()
+    {
+        Assert.DoesNotMatch(@"(?m)^\s*kind:\s*Secret\b", Read("deploy/kubernetes.yaml"));
+    }
+
+    [Fact]
+    public void Gitignore_ignores_env()
+    {
+        var lines = Read(".gitignore").Split('\n').Select(l => l.Trim()).ToList();
+        Assert.Contains(".env", lines);
+        Assert.Contains("!.env.example", lines);
+    }
+
+    [Fact]
     public void Release_six_rids()
     {
         var text = Read(".github/workflows/runner-release.yml");
