@@ -57,6 +57,22 @@ public class UiEndpointsTests
     }
 
     [Fact]
+    public async Task Dismiss_requires_auth()
+    {
+        using var f = Make();
+        var store = f.Services.GetRequiredService<IceStore>();
+        var (id, _) = store.CreateMachine("desk");
+        var now = DateTimeOffset.UtcNow;
+        store.ApplyReport(id, new("h", "linux", [new(Runtime.Claude, "s1", "/p", "t", SessionState.Done, now, [])]), now);
+        var cid = store.Enqueue(id, "s1", "hi", now);
+        var url = $"/api/sessions/{id}/s1/commands/{cid}/dismiss";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await f.CreateClient().PostAsync(url, null)).StatusCode);
+        var (c, _) = await LoggedIn(f);
+        Assert.Equal(HttpStatusCode.NoContent, (await c.PostAsync(url, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.PostAsync(url, null)).StatusCode);
+    }
+
+    [Fact]
     public async Task Login_wrong_401()
     {
         using var f = Make();

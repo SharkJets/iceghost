@@ -37,13 +37,15 @@ public static class RunnerEndpoints
             return Results.NoContent();
         });
 
-        g.MapGet("/commands", async (HttpContext http, IceStore store, int? waitSeconds) =>
+        g.MapGet("/commands", async (HttpContext http, IceStore store, int? waitSeconds, bool? fresh) =>
         {
             var id = (long)http.Items[MachineKey]!;
+            var first = fresh == true;
             var deadline = time.GetTimestamp() + TimeSpan.FromSeconds(ClampWait(waitSeconds ?? 0)).Ticks * time.TimestampFrequency / TimeSpan.TicksPerSecond;
             while (true)
             {
-                var cmds = store.TakeCommands(id, time.GetUtcNow());
+                var cmds = store.TakeCommands(id, time.GetUtcNow(), first);
+                first = false;
                 if (cmds.Count > 0 || time.GetTimestamp() >= deadline) return Results.Json(cmds, IceJson.Options);
                 // ponytail: 1 s DB polling, signal per machine if latency matters
                 try { await Task.Delay(1000, http.RequestAborted); }

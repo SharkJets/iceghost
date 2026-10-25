@@ -40,6 +40,12 @@ const send = guard(async () => {
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (1 to 20000 chars)' }
   finally { sending.value = false }
 })
+
+const dismiss = guard(async (id: number) => {
+  err.value = ''
+  try { await api(`${url}/commands/${id}/dismiss`, 'POST'); d.value = await api<SessionDetail>(url) }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error ? e.message : 'Dismiss failed' }
+})
 </script>
 <template>
   <div class="space-y-4">
@@ -65,7 +71,8 @@ const send = guard(async () => {
       <div v-for="c in cmds" :key="c.id" class="mb-1 rounded bg-slate-800 p-2 text-sm">
         <div class="flex justify-between"><span class="whitespace-pre-wrap break-words">{{ c.text }}</span>
           <span class="ml-2 shrink-0 text-xs" :class="tones[label(c).tone]">
-            <span v-if="label(c).tone === 'busy'" class="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-400 border-t-transparent align-middle"></span>{{ label(c).text }} · {{ ago(c.createdAt, now) }}</span></div>
+            <span v-if="label(c).tone === 'busy'" class="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-400 border-t-transparent align-middle"></span>{{ label(c).text }} · {{ ago(c.createdAt, now) }}
+            <button v-if="c.status === 'queued' || c.status === 'delivered' || c.status === 'running'" class="ml-2 text-xs text-slate-400 hover:text-red-400" @click="dismiss(c.id)">Dismiss</button></span></div>
         <div v-if="c.output" class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-slate-400">{{ c.output }}</div>
       </div>
     </div>

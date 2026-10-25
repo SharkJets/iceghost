@@ -147,9 +147,13 @@ public sealed class IceStore
             .ExecuteUpdate(u => u.SetProperty(c => c.Status, "running").SetProperty(c => c.StartedAt, c => c.StartedAt ?? now).SetProperty(c => c.HeartbeatAt, now)) == 1;
     }
 
-    public IReadOnlyList<RunnerCommand> TakeCommands(long machineId, DateTimeOffset now)
+    public IReadOnlyList<RunnerCommand> TakeCommands(long machineId, DateTimeOffset now, bool fresh = false)
     {
         using var db = Db();
+        // a freshly started runner holds nothing: whatever it had taken died with the old process
+        if (fresh)
+            db.Commands.Where(c => c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"))
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "runner restarted before finishing"));
         Expire(db, now, machineId);
         var taken = new List<CommandEntity>();
         foreach (var c in db.Commands.Where(c => c.MachineId == machineId && c.Status == "queued").OrderBy(c => c.Id).ToList())
@@ -168,6 +172,14 @@ public sealed class IceStore
         c.Output = r.Output;
         db.SaveChanges();
         return true;
+    }
+
+    /// <summary>Fails a pending command. A turn already running on the PC is not stopped; its result is dropped (Complete then returns false).</summary>
+    public bool Dismiss(long machineId, string sessionId, long commandId)
+    {
+        using var db = Db();
+        return db.Commands.Where(c => c.Id == commandId && c.MachineId == machineId && c.SessionId == sessionId && (c.Status == "queued" || c.Status == "delivered" || c.Status == "running"))
+            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "failed").SetProperty(c => c.Output, "dismissed")) == 1;
     }
 
     public IReadOnlyList<MachineRow> ListMachines()

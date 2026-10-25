@@ -17,9 +17,12 @@ public sealed class ServerClient(HttpClient http, string token)
         using var _ = await SendAsync(HttpMethod.Post, "api/runner/report", r, ct);
     }
 
+    private bool _fresh = true; // first poll tells the server we hold nothing
+
     public async Task<IReadOnlyList<RunnerCommand>> PollAsync(CancellationToken ct)
     {
-        using var res = await SendAsync(HttpMethod.Get, "api/runner/commands?waitSeconds=25", null, ct);
+        using var res = await SendAsync(HttpMethod.Get, "api/runner/commands?waitSeconds=25" + (_fresh ? "&fresh=true" : ""), null, ct);
+        _fresh = false;
         return await res.Content.ReadFromJsonAsync<RunnerCommand[]>(IceJson.Options, ct) ?? [];
     }
 

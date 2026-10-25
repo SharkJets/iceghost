@@ -112,6 +112,37 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fresh_take_fails_held_commands()
+    {
+        var s = Store(); var (a, _) = s.CreateMachine("a"); var (b, _) = s.CreateMachine("b");
+        s.ApplyReport(a, Full(Sess("s1")), T); s.ApplyReport(b, Full(Sess("s1")), T);
+        s.Enqueue(a, "s1", "one", T); s.Enqueue(a, "s1", "two", T); s.Enqueue(b, "s1", "other", T);
+        s.TakeCommands(a, T); s.TakeCommands(b, T);
+        s.Heartbeat(a, 2, T); // 2 running, 1 delivered
+        s.Enqueue(a, "s1", "three", T);
+        Assert.Equal([new RunnerCommand(4, Runtime.Claude, "s1", "C:\\p", "three")], s.TakeCommands(a, T, fresh: true));
+        var cmds = s.GetSession(a, "s1", T)!.Commands;
+        Assert.Equal([("failed", "runner restarted before finishing"), ("failed", "runner restarted before finishing"), ("delivered", null)], cmds.Take(3).Select(c => (c.Status, c.Output)));
+        Assert.Equal("delivered", s.GetSession(b, "s1", T)!.Commands[0].Status);
+    }
+
+    [Fact]
+    public void Dismiss_pending_command()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.Enqueue(id, "s1", "a", T); s.Enqueue(id, "s1", "b", T);
+        Assert.False(s.Dismiss(id, "other", 1));
+        Assert.True(s.Dismiss(id, "s1", 1));
+        var c = s.GetSession(id, "s1", T)!.Commands[0];
+        Assert.Equal(("failed", "dismissed"), (c.Status, c.Output));
+        Assert.False(s.Dismiss(id, "s1", 1));
+        s.TakeCommands(id, T); // only b is still queued
+        Assert.True(s.Complete(id, 2, new(true, "x"), T));
+        Assert.False(s.Dismiss(id, "s1", 2));
+    }
+
+    [Fact]
     public void Stale_delivered_expires_on_read()
     {
         var s = Store(); var (id, _) = s.CreateMachine("d");

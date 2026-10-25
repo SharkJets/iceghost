@@ -61,7 +61,10 @@ public static class UiEndpoints
             catch (MachineOfflineException e) { return Json(new { error = e.Message }, 409); }
         });
 
-        api.MapGet("/machines", (IceStore s) => Json(s.ListMachines()));
+        api.MapPost("/sessions/{machineId:long}/{sessionId}/commands/{id:long}/dismiss", (IceStore s, long machineId, string sessionId, long id) =>
+            s.Dismiss(machineId, sessionId, id) ? Results.NoContent() : Results.NotFound());
+
+        api.MapGet("/machines",(IceStore s) => Json(s.ListMachines()));
         api.MapPost("/machines", (IceStore s, MachineBody? body) =>
         {
             var name = body?.Name?.Trim();

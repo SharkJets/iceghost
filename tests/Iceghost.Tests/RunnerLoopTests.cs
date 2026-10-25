@@ -41,6 +41,17 @@ public class RunnerLoopTests
             adapters ?? (_ => new FakeRuntimeAdapter(c => new(true, "echo " + c.Text))), t, maxParallel, idle), h, t);
     }
 
+    [Fact]
+    public async Task Fresh_only_on_first_poll()
+    {
+        var h = new Handler(_ => Json(Array.Empty<RunnerCommand>())) { Time = new FakeTimeProvider() };
+        var client = new ServerClient(new HttpClient(h) { BaseAddress = new Uri("http://x/") }, "tok");
+        await client.PollAsync(default); await client.PollAsync(default);
+        var paths = h.Snapshot().Select(c => c.Path).ToList();
+        Assert.Contains("fresh=true", paths[0]);
+        Assert.DoesNotContain("fresh", paths[1]);
+    }
+
     // Blocks every command until Release() (or cancellation); tracks concurrency and start order.
     private sealed class Gate : IRuntimeAdapter
     {
