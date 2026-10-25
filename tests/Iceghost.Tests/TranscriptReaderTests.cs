@@ -11,6 +11,47 @@ public class TranscriptReaderTests
     static string CA(string text, string ts, string extra = "") =>
         $$$"""{"type":"assistant","sessionId":"s1","cwd":"C:\\p","timestamp":"{{{ts}}}"{{{extra}}},"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"{{{text}}}"}]}}""";
 
+    static string CTool(string input, string ts) =>
+        $$$"""{"type":"assistant","sessionId":"s1","cwd":"C:\\p","timestamp":"{{{ts}}}","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{{{input}}} }]}}""";
+
+    [Fact]
+    public void Claude_last_action_tool_use_command() =>
+        Assert.Equal("Bash: dotnet test", TranscriptReader.Read(Runtime.Claude, [CU("go", "2026-10-25T10:00:00Z"), CTool("""{"command":"dotnet test"}""", "2026-10-25T10:01:00Z")])!.LastAction);
+
+    [Fact]
+    public void Claude_last_action_text_after_tool() =>
+        Assert.Equal("All green", TranscriptReader.Read(Runtime.Claude, [CU("go", "2026-10-25T10:00:00Z"), CTool("""{"command":"x"}""", "2026-10-25T10:01:00Z"), CA("All   green\\nmore", "2026-10-25T10:02:00Z")])!.LastAction);
+
+    [Fact]
+    public void Codex_last_action_function_call()
+    {
+        string[] lines =
+        [
+            """{"type":"session_meta","timestamp":"2026-10-25T10:00:00Z","payload":{"id":"c1","cwd":"/w"}}""",
+            """{"type":"response_item","timestamp":"2026-10-25T10:00:01Z","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\",\"-la\"]}","call_id":"k1"}}""",
+        ];
+        Assert.Equal("shell: ls -la", TranscriptReader.Read(Runtime.Codex, lines)!.LastAction);
+    }
+
+    [Fact]
+    public void Pi_last_action_tool_call()
+    {
+        string[] lines =
+        [
+            """{"type":"session","id":"p1","cwd":"/w","timestamp":"2026-10-25T10:00:00Z"}""",
+            """{"type":"message","timestamp":"2026-10-25T10:00:01Z","message":{"role":"assistant","stopReason":"toolUse","content":[{"type":"toolCall","id":"c1","name":"read","arguments":{"path":"a.txt"}}]}}""",
+        ];
+        Assert.Equal("read: a.txt", TranscriptReader.Read(Runtime.Pi, lines)!.LastAction);
+    }
+
+    [Fact]
+    public void Last_action_truncated_140()
+    {
+        var a = TranscriptReader.Read(Runtime.Claude, [CU("go", "2026-10-25T10:00:00Z"), CTool($$$"""{"command":"{{{new string('x', 300)}}}"}""", "2026-10-25T10:01:00Z")])!.LastAction!;
+        Assert.Equal(140, a.Length);
+        Assert.EndsWith("…", a);
+    }
+
     [Fact]
     public void Claude_basic()
     {

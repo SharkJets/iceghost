@@ -18,7 +18,7 @@ public static class TranscriptReader
 
     sealed class Acc
     {
-        public string? Id, Cwd, Title, FirstUser, ModeLine, CliMode, CodexMode;
+        public string? LastAction, Id, Cwd, Title, FirstUser, ModeLine, CliMode, CodexMode;
         public bool HasModeLine;
         public DateTimeOffset Last = DateTimeOffset.MinValue;
         public bool Ended;
@@ -28,6 +28,7 @@ public static class TranscriptReader
         public void Add(string role, string? text, DateTimeOffset at)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
+            if (role == "assistant") LastAction = Action(text) ?? LastAction;
             if (role == "user") FirstUser ??= text.Length <= TitleMax ? text : text[..(TitleMax - 1)] + "…";
             Tail.Add(new(role, Cut(text), at));
             if (Tail.Count > TailMax) Tail.RemoveAt(0);
@@ -59,6 +60,7 @@ public static class TranscriptReader
         return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? a.FirstUser,
             a.Last, a.Ended, a.Pending.Count > 0, a.Tail)
         {
+            LastAction = a.LastAction,
             Permission = runtime switch
             {
                 Runtime.Claude => (a.HasModeLine ? a.ModeLine : a.CliMode) is { } m && m != "default" ? m : null,
@@ -88,7 +90,10 @@ public static class TranscriptReader
                 switch (Str(p, "type"))
                 {
                     case "text": Text(type, Str(p, "text"), at, a); break;
-                    case "tool_use": if (Str(p, "id") is { } id) a.Pending.Add(id); break;
+                    case "tool_use":
+                        if (Str(p, "id") is { } id) a.Pending.Add(id);
+                        a.LastAction = ToolAction(Str(p, "name"), p.TryGetProperty("input", out var inp) ? inp : default) ?? a.LastAction;
+                        break;
                     case "tool_result":
                         if (Str(p, "tool_use_id") is { } rid) a.Pending.Remove(rid);
                         a.Add("tool", Flatten(p.TryGetProperty("content", out var tc) ? tc : default), at);
@@ -144,7 +149,12 @@ public static class TranscriptReader
                         if (role is not ("user" or "assistant")) break;
                         Text(role, Flatten(p.TryGetProperty("content", out var c) ? c : default), at, a);
                         break;
-                    case "function_call": if (Str(p, "call_id") is { } id) a.Pending.Add(id); break;
+                    case "function_call" or "local_shell_call" or "custom_tool_call":
+                        if (Str(p, "call_id") is { } id) a.Pending.Add(id);
+                        JsonElement args = default;
+                        try { if (Str(p, "arguments") is { } aj) args = JsonDocument.Parse(aj).RootElement.Clone(); } catch (JsonException) { }
+                        a.LastAction = ToolAction(Str(p, "name") ?? "shell", args, "cmd", "command") ?? a.LastAction;
+                        break;
                     case "function_call_output":
                         if (Str(p, "call_id") is { } rid) a.Pending.Remove(rid);
                         a.Add("tool", Flatten(p.TryGetProperty("output", out var o) ? o : default), at);
@@ -168,7 +178,11 @@ public static class TranscriptReader
                 a.Add("assistant", Flatten(content), at);
                 if (content.ValueKind == JsonValueKind.Array)
                     foreach (var p in content.EnumerateArray())
-                        if (Str(p, "type") == "toolCall" && Str(p, "id") is { } id) a.Pending.Add(id);
+                        if (Str(p, "type") == "toolCall")
+                        {
+                            if (Str(p, "id") is { } id) a.Pending.Add(id);
+                            a.LastAction = ToolAction(Str(p, "name"), p.TryGetProperty("arguments", out var ar) ? ar : default) ?? a.LastAction;
+                        }
                 a.Ended = Str(m, "stopReason") is { } s && s != "toolUse";
                 if (a.Ended) a.Pending.Clear();
                 break;
@@ -178,6 +192,29 @@ public static class TranscriptReader
                 a.Ended = false;
                 break;
         }
+    }
+
+    static readonly string[] InputKeys = ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"];
+
+    /// <summary>"Tool: main input" (or the tool name alone); null without a name.</summary>
+    static string? ToolAction(string? name, JsonElement input, params string[]? keys)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        foreach (var k in keys is { Length: > 0 } ? keys : InputKeys)
+        {
+            if (input.ValueKind != JsonValueKind.Object || !input.TryGetProperty(k, out var v)) continue;
+            var t = v.ValueKind == JsonValueKind.String ? v.GetString()
+                : v.ValueKind == JsonValueKind.Array ? string.Join(" ", v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString())) : null;
+            if (!string.IsNullOrWhiteSpace(t)) return Action(name + ": " + t);
+        }
+        return Action(name);
+    }
+
+    /// <summary>First line, whitespace collapsed, max 140 chars.</summary>
+    static string? Action(string text)
+    {
+        var line = text.Split('\n').Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\s+", " ").Trim()).FirstOrDefault(l => l.Length > 0);
+        return line is null ? null : line.Length <= 140 ? line : line[..139] + "…";
     }
 
     static DateTimeOffset Stamp(JsonElement r, Acc a)
