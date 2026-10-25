@@ -17,8 +17,24 @@ namespace Iceghost.Api.Endpoints;
 public static class UiEndpoints
 {
     public sealed record LoginBody(string? Password);
-    public sealed record MessageBody(string? Text);
+    public sealed record MessageBody(string? Text, string? Image = null, string? ImageType = null);
     public sealed record MachineBody(string? Name);
+
+    const int MaxImage = 3 * 1024 * 1024;
+
+    /// <summary>Allowlisted type, valid base64, size cap, and magic bytes that match the declared type.</summary>
+    static bool ImageOk(string b64, string? type, out byte[]? bytes, out string why)
+    {
+        bytes = null; why = "";
+        if (type is not ("image/png" or "image/jpeg" or "image/gif" or "image/webp")) { why = "unsupported image type"; return false; }
+        if (b64.Length > MaxImage / 3 * 4 + 4) { why = "image too large (max 3 MB)"; return false; }
+        Span<byte> buf = new byte[b64.Length / 4 * 3 + 3];
+        if (!Convert.TryFromBase64String(b64, buf, out var n)) { why = "image is not valid base64"; return false; }
+        if (n > MaxImage) { why = "image too large (max 3 MB)"; return false; }
+        if (Attachment.Ext(type, buf[..n]) is null) { why = "image content does not match its type"; return false; }
+        bytes = buf[..n].ToArray();
+        return true;
+    }
 
     public static IEndpointRouteBuilder MapUiEndpoints(this IEndpointRouteBuilder app)
     {
@@ -51,11 +67,17 @@ public static class UiEndpoints
             s.GetSession(machineId, sessionId, DateTimeOffset.UtcNow) is { } d ? Json(d) : Results.NotFound());
         api.MapPost("/sessions/{machineId:long}/{sessionId}/messages", (IceStore s, long machineId, string sessionId, MessageBody? body) =>
         {
-            var text = body?.Text;
-            if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) return Results.BadRequest();
+            var text = body?.Text ?? "";
+            if (text.Length > 20000) return Results.BadRequest();
+            byte[]? img = null;
+            if (body?.Image is { } b64)
+            {
+                if (!ImageOk(b64, body.ImageType, out img, out var why)) return Json(new { error = why }, 400);
+            }
+            else if (string.IsNullOrWhiteSpace(text)) return Results.BadRequest();
             try
             {
-                return s.Enqueue(machineId, sessionId, text, DateTimeOffset.UtcNow) is { } id
+                return s.Enqueue(machineId, sessionId, text, DateTimeOffset.UtcNow, img, body?.ImageType) is { } id
                     ? Json(new { id }, 202) : Results.NotFound();
             }
             catch (MachineOfflineException e) { return Json(new { error = e.Message }, 409); }

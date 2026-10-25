@@ -5,6 +5,7 @@ import { api, Unauthorized, type SessionDetail, type MachineRow } from './api'
 import { ago, agent, commandLabel, folder, isOffline, shortOs, stateOf } from './format'
 import { usePoll, ticker } from './useNow'
 import { guard } from './route'
+import { prepareImage } from './image'
 
 const props = defineProps<{ machineId: string; sessionId: string }>()
 const emit = defineEmits<{ unauth: [] }>()
@@ -12,6 +13,8 @@ const d = ref<SessionDetail | null>(null)
 const text = ref('')
 const err = ref('')
 const sending = ref(false)
+const img = ref<{ data: string; type: string; url: string } | null>(null)
+const pick = ref<HTMLInputElement | null>(null)
 const loadErr = ref(false)
 const now = ticker()
 const ta = ref<HTMLTextAreaElement | null>(null)
@@ -37,13 +40,26 @@ const label = (c: SessionDetail['commands'][number]) => {
   return commandLabel(c, d.value!.session.lastActivity, now.value, earlier)
 }
 
+const clearImg = () => { if (img.value) URL.revokeObjectURL(img.value.url); img.value = null }
+const attach = async (f?: Blob | null) => {
+  if (!f) return
+  err.value = ''
+  try { const p = await prepareImage(f); clearImg(); img.value = p }
+  catch (e) { err.value = e instanceof Error ? e.message : 'Could not read image' }
+}
+const onPick = (e: Event) => { const i = e.target as HTMLInputElement; attach(i.files?.[0]); i.value = '' }
+const onPaste = (e: ClipboardEvent) => {
+  const f = [...(e.clipboardData?.items ?? [])].find(i => i.type.startsWith('image/'))?.getAsFile()
+  if (f) { e.preventDefault(); attach(f) } // text paste falls through
+}
+
 const send = guard(async () => {
   const t = text.value.trim()
-  if (!t) return
+  if (!t && !img.value) return
   err.value = ''
   sending.value = true
-  try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url); window.scrollTo({ top: 0, behavior: 'smooth' }); body.value?.scrollTo({ top: 0, behavior: 'smooth' }); ta.value?.focus() }
-  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (1 to 20000 chars)' }
+  try { await api(url + '/messages', 'POST', { text: t, image: img.value?.data, imageType: img.value?.type }); text.value = ''; clearImg(); d.value = await api<SessionDetail>(url); window.scrollTo({ top: 0, behavior: 'smooth' }); body.value?.scrollTo({ top: 0, behavior: 'smooth' }); ta.value?.focus() }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (text up to 20000 chars)' }
   finally { sending.value = false }
 })
 
@@ -91,10 +107,18 @@ const dismiss = guard(async (id: number) => {
           <p v-if="offline" class="mb-2 rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
           <div class="rounded-lg border border-slate-600 bg-slate-950/60 p-2">
             <textarea ref="ta" v-model="text" rows="3" placeholder="Type a message to the agent..." class="w-full resize-none bg-transparent text-sm outline-none"
-              @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send"></textarea>
+              @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send" @paste="onPaste"></textarea>
+            <div v-if="img" class="mb-2 flex items-end gap-3">
+              <img :src="img.url" alt="Attached screenshot" class="max-h-24 rounded-md border border-slate-700" />
+              <button class="text-xs text-slate-400 hover:text-red-400" @click="clearImg">Remove</button>
+            </div>
             <div class="flex items-center justify-between gap-2">
               <span class="text-xs text-slate-500">Ctrl+Enter to send</span>
-              <button class="flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-sm font-medium hover:bg-sky-500 disabled:opacity-50" :disabled="sending || offline" @click="send"><Icon name="send" />Send</button>
+              <div class="flex items-center gap-2">
+                <input ref="pick" type="file" accept="image/*" class="hidden" @change="onPick" />
+                <button class="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100" title="Attach or paste a screenshot" @click="pick?.click()"><Icon name="image" />Screenshot</button>
+                <button class="flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-sm font-medium hover:bg-sky-500 disabled:opacity-50" :disabled="sending || offline" @click="send"><Icon name="send" />Send</button>
+              </div>
             </div>
           </div>
           <p v-if="err" class="mt-1 text-sm text-red-400">{{ err }}</p>
@@ -114,6 +138,7 @@ const dismiss = guard(async (id: number) => {
               <span class="flex items-center gap-1" :class="tones[label(c).tone]">
                 <span v-if="label(c).tone === 'busy'" class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></span>{{ label(c).text }}</span>
               <span class="text-slate-500">{{ ago(c.createdAt, now) }}</span>
+              <span v-if="c.hasImage" class="text-slate-500">· screenshot</span>
             </div>
             <div v-if="c.output" :title="c.output" class="mt-1 line-clamp-3 whitespace-pre-wrap break-words font-mono text-xs text-slate-400">{{ c.output }}</div>
           </div>

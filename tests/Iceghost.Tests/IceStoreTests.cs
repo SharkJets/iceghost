@@ -322,4 +322,62 @@ public sealed class IceStoreTests : IDisposable
         s2.ApplyReport(id, Full(Sess("s1") with { LastAction = "Bash: ls" }), T);
         Assert.Equal("Bash: ls", s2.ListSessions(T)[0].LastAction);
     }
+
+    static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
+
+    [Fact]
+    public void Image_roundtrip_and_cleared_on_complete()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.Enqueue(id, "s1", "hi", T, Png, "image/png");
+        Assert.True(s.GetSession(id, "s1", T)!.Commands[0].HasImage);
+        var cmd = Assert.Single(s.TakeCommands(id, T));
+        Assert.Equal(Png, Convert.FromBase64String(cmd.Image!));
+        Assert.Equal("image/png", cmd.ImageType);
+        s.Complete(id, 1, new(true, "ok"), T);
+        s.Enqueue(id, "s1", "again", T);
+        Assert.Null(Assert.Single(s.TakeCommands(id, T)).Image);
+        Assert.Null(RawImage(1));
+    }
+
+    [Fact]
+    public void Image_cleared_on_dismiss()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.Enqueue(id, "s1", "hi", T, Png, "image/png");
+        Assert.NotNull(RawImage(1));
+        s.Dismiss(id, "s1", 1);
+        Assert.Null(RawImage(1));
+    }
+
+    object? RawImage(long cmdId)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}");
+        c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT Image FROM Commands WHERE Id = {cmdId}";
+        var v = cmd.ExecuteScalar();
+        return v is DBNull ? null : v;
+    }
+
+    [Fact]
+    public void Existing_db_gets_image_columns()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "ALTER TABLE Commands DROP COLUMN Image; ALTER TABLE Commands DROP COLUMN ImageType;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s2 = Store();
+        s2.ApplyReport(id, Full(Sess("s1")), T);
+        s2.Enqueue(id, "s1", "hi", T, Png, "image/png");
+        Assert.NotNull(Assert.Single(s2.TakeCommands(id, T)).Image);
+    }
 }

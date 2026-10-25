@@ -49,10 +49,12 @@ public static class Program
         foreach (var rt in new[] { Runtime.Claude, Runtime.Codex, Runtime.Pi })
             foreach (var r in roots.For(rt))
                 Console.WriteLine($"{rt}: {r}{(Directory.Exists(r) ? "" : " (missing)")}");
+        var attach = Path.Combine(dir, "attachments");
+        try { foreach (var f in Directory.EnumerateFiles(attach).Where(f => File.GetLastWriteTimeUtc(f) < DateTime.UtcNow.AddDays(-7))) File.Delete(f); } catch { } // best effort
         var scanner = new SessionScanner(roots, TranscriptReader.Read);
         var loop = new RunnerLoop(client, scanner.Scan,
             runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), maxTurn),
-            TimeProvider.System, Math.Max(1, cfg.MaxParallel), TimeSpan.FromMinutes(cfg.TimeoutMinutes));
+            TimeProvider.System, Math.Max(1, cfg.MaxParallel), TimeSpan.FromMinutes(cfg.TimeoutMinutes), attach);
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>

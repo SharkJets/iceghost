@@ -197,4 +197,46 @@ public class UiEndpointsTests
         c.DefaultRequestHeaders.Add("Cookie", cookie);
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/machines")).StatusCode);
     }
+
+    static string B64(params byte[] b) => Convert.ToBase64String(b);
+    static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    static async Task<HttpResponseMessage> MessageWith(object body)
+    {
+        using var f = Make();
+        var store = f.Services.GetRequiredService<IceStore>();
+        var (id, _) = store.CreateMachine("desk");
+        var now = DateTimeOffset.UtcNow;
+        store.ApplyReport(id, new("h", "linux", [new(Runtime.Claude, "s1", "/p", "t", SessionState.Done, now, [])]), now);
+        var (c, _) = await LoggedIn(f);
+        return await c.PostAsJsonAsync($"/api/sessions/{id}/s1/messages", body);
+    }
+
+    [Fact]
+    public async Task Message_with_png_202() =>
+        Assert.Equal(HttpStatusCode.Accepted, (await MessageWith(new { text = "look", image = B64(PngBytes), imageType = "image/png" })).StatusCode);
+
+    [Fact]
+    public async Task Message_image_only_202() =>
+        Assert.Equal(HttpStatusCode.Accepted, (await MessageWith(new { text = "  ", image = B64(PngBytes), imageType = "image/png" })).StatusCode);
+
+    [Fact]
+    public async Task Message_bad_image_type_400()
+    {
+        var r = await MessageWith(new { text = "x", image = B64(PngBytes), imageType = "image/svg+xml" });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("error", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Message_image_magic_mismatch_400()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, (await MessageWith(new { text = "x", image = B64(PngBytes), imageType = "image/jpeg" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await MessageWith(new { text = "x", image = "!!notbase64", imageType = "image/png" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await MessageWith(new { text = "x", image = B64(new byte[3 * 1024 * 1024 + 1].Select((_, i) => i < 4 ? PngBytes[i] : (byte)0).ToArray()), imageType = "image/png" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Message_empty_no_image_400() =>
+        Assert.Equal(HttpStatusCode.BadRequest, (await MessageWith(new { text = " ", imageType = "image/png" })).StatusCode);
 }

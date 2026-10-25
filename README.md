@@ -41,6 +41,8 @@ The prompt goes to the CLI on stdin, never on the command line. These are the ex
 | Codex | `codex exec resume --json --skip-git-repo-check EXTRA ID -` |
 | pi | `pi --mode json --print --no-extensions EXTRA --session-id ID` |
 
+You can attach a screenshot to a message (Screenshot button, phone gallery or camera, or paste into the message box). It is resized to 2400 px, kept on the server only until the message finishes, saved on the PC under the runner's state dir `attachments/` (files are deleted after 7 days), and its path is appended to the prompt. Claude gets `--add-dir` for that folder.
+
 The web app is a Vue SPA served by the API. The same SPA is the PWA and the Electron window.
 
 ## Session states

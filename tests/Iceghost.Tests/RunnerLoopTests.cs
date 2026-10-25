@@ -450,4 +450,46 @@ public class RunnerLoopTests
         cts.Cancel(); await run;
         Assert.Equal(SessionState.Done, Reports(h)[n].Sessions!.Single(s => s.SessionId == "b").State);
     }
+
+    static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
+
+    [Fact]
+    public async Task Attachment_written_and_path_appended()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ig-att-" + Guid.NewGuid().ToString("N"));
+        RunnerCommand? seen = null;
+        var cmd = new RunnerCommand(9, Runtime.Claude, "s1", "/p", "") { Image = Convert.ToBase64String(PngBytes), ImageType = "image/png", AttachDir = "/evil" };
+        var t = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        var h = new Handler(Server(cmd)) { Time = t };
+        var loop = new RunnerLoop(new ServerClient(new HttpClient(h) { BaseAddress = new Uri("http://x/") }, "tok"), _ => [S("s1")],
+            _ => new FakeRuntimeAdapter(c => { seen = c; return new(true, "ok"); }), t, attachDir: dir);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        try
+        {
+            await Pump(t, () => Posted(h, 9, "result"));
+            cts.Cancel(); await run;
+            var path = Path.Combine(Path.GetFullPath(dir), "9.png");
+            Assert.Equal(PngBytes, await File.ReadAllBytesAsync(path));
+            Assert.Contains("See the attached screenshot.", seen!.Text);
+            Assert.Contains($"[Screenshot attached: {path}]", seen.Text);
+            Assert.Equal(Path.GetFullPath(dir), seen.AttachDir);
+            Assert.Null(seen.Image);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    [Fact]
+    public async Task Bad_attachment_fails_without_running()
+    {
+        var ran = false;
+        var cmd = new RunnerCommand(9, Runtime.Claude, "s1", "/p", "hi") { Image = Convert.ToBase64String(PngBytes), ImageType = "image/jpeg" };
+        var (loop, h, t) = Make(Server(cmd), _ => new FakeRuntimeAdapter(_ => { ran = true; return new(true, "x"); }));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => Posted(h, 9, "result"));
+        cts.Cancel(); await run;
+        Assert.False(ran);
+        Assert.Equal(new CommandResult(false, "bad attachment"), Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/9/result")).Body));
+    }
 }

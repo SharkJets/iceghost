@@ -209,4 +209,12 @@ public sealed class RuntimeAdapterTests
         Assert.Equal(["exec", "resume", "--json", "--skip-git-repo-check", "t1", "-"],
             new CodexAdapter([], T).BuildArguments("t1", [], "bogus"));
     }
+
+    [Fact]
+    public void Claude_add_dir_only_when_attach_dir_set()
+    {
+        Assert.Equal(["--print", "--output-format", "json", "--add-dir", "/a", "--resume", "s1"], new ClaudeAdapter([], T).BuildArguments("s1", [], null, "/a"));
+        Assert.DoesNotContain("--add-dir", new ClaudeAdapter([], T).BuildArguments("s1", []));
+        Assert.DoesNotContain("--add-dir", new ClaudeAdapter([], T).BuildArguments("s1", [], null, "/a&calc"));
+    }
 }

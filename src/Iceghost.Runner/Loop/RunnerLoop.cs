@@ -14,7 +14,8 @@ public sealed class RunnerLoop(
     Func<Runtime, IRuntimeAdapter> adapters,
     TimeProvider time,
     int maxParallel = 4,
-    TimeSpan? idleTimeout = null)
+    TimeSpan? idleTimeout = null,
+    string? attachDir = null)
 {
     private static readonly TimeSpan ScanEvery = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan FullEvery = TimeSpan.FromMinutes(5);
@@ -23,6 +24,7 @@ public sealed class RunnerLoop(
     private static readonly TimeSpan ActivityEvery = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan HeartbeatEvery = TimeSpan.FromSeconds(15);
 
+    private readonly string _attach = Path.GetFullPath(attachDir ?? Path.Combine(Path.GetTempPath(), "iceghost-attachments"));
     private readonly TimeSpan _idle = idleTimeout ?? TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _slots = new(Math.Max(1, maxParallel));
     private readonly SemaphoreSlim _reportGate = new(1);
@@ -134,7 +136,30 @@ public sealed class RunnerLoop(
             }
         }
         catch (Exception e) when (e is not UnauthorizedRunnerException && !ct.IsCancellationRequested) { } // server may be down: run anyway
-        cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd, Permission = known.Permission };
+        cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd, Permission = known.Permission, AttachDir = null }; // AttachDir is runner-local, never trusted from the server
+        if (cmd.Image is not null)
+        {
+            string? fail = null;
+            try
+            {
+                var bytes = Convert.FromBase64String(cmd.Image);
+                if (Attachment.Ext(cmd.ImageType, bytes) is not { } ext) fail = "bad attachment";
+                else
+                {
+                    Directory.CreateDirectory(_attach);
+                    var path = Path.Combine(_attach, cmd.Id + ext);
+                    await File.WriteAllBytesAsync(path, bytes, ct);
+                    cmd = cmd with
+                    {
+                        Text = (cmd.Text.Trim().Length > 0 ? cmd.Text : "See the attached screenshot.") + "\n\n[Screenshot attached: " + path + "]",
+                        Image = null, AttachDir = _attach,
+                    };
+                }
+            }
+            catch (FormatException) { fail = "bad attachment"; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { fail = $"attachment not saved: {e.Message}"; }
+            if (fail is not null) { await PostResultAsync(cmd.Id, new CommandResult(false, fail), ct); return; }
+        }
         var key = (cmd.Runtime, cmd.SessionId);
 
         lock (_gate) _running.Add(key);

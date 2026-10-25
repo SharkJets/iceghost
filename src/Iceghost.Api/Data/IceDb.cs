@@ -40,6 +40,8 @@ public sealed class CommandEntity
     public DateTimeOffset? DeliveredAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? HeartbeatAt { get; set; }
+    public byte[]? Image { get; set; } // only while pending; cleared when the command finishes
+    public string? ImageType { get; set; }
 }
 
 public sealed class IceDb(DbContextOptions<IceDb> options) : DbContext(options)

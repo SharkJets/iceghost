@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Iceghost.Api.Data;
 
 public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null);
-public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null);
+public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null, bool HasImage = false);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
 public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
 public sealed class MachineOfflineException(string message) : Exception(message);
@@ -26,8 +26,8 @@ public sealed class IceStore
         using var db = Db();
         db.Database.EnsureCreated();
         var cols = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Commands')").ToList();
-        foreach (var col in new[] { "StartedAt", "HeartbeatAt" })
-            if (!cols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Commands ADD COLUMN {col} TEXT NULL");
+        foreach (var (col, type) in new[] { ("StartedAt", "TEXT"), ("HeartbeatAt", "TEXT"), ("Image", "BLOB"), ("ImageType", "TEXT") })
+            if (!cols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Commands ADD COLUMN {col} {type} NULL");
         if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Sessions')").ToList().Contains("LastAction"))
             db.Database.ExecuteSqlRaw("ALTER TABLE Sessions ADD COLUMN LastAction TEXT NULL");
     }
@@ -111,10 +111,10 @@ public sealed class IceStore
         var cmds = db.Commands.Where(c => c.MachineId == machineId && c.SessionId == sessionId).OrderBy(c => c.Id).ToList();
         var pending = cmds.Count(c => c.Status is "queued" or "delivered" or "running");
         var tail = JsonSerializer.Deserialize<List<TranscriptEntry>>(s.TailJson, IceJson.Options) ?? [];
-        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt, c.StartedAt, c.HeartbeatAt)).ToList());
+        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt, c.StartedAt, c.HeartbeatAt, c.ImageType != null)).ToList());
     }
 
-    public long? Enqueue(long machineId, string sessionId, string text, DateTimeOffset now)
+    public long? Enqueue(long machineId, string sessionId, string text, DateTimeOffset now, byte[]? image = null, string? imageType = null)
     {
         using var db = Db();
         var s = db.Sessions.Find(machineId, sessionId);
@@ -122,7 +122,7 @@ public sealed class IceStore
         var m = db.Machines.Find(machineId);
         if (m?.LastSeen is not { } seen || now - seen > OnlineWindow)
             throw new MachineOfflineException($"machine offline: {m?.Name} last seen {(m?.LastSeen is { } l ? l.ToString("o") : "never")}");
-        var c = new CommandEntity { MachineId = machineId, SessionId = sessionId, Runtime = s.Runtime, Cwd = s.Cwd, Text = text, CreatedAt = now };
+        var c = new CommandEntity { MachineId = machineId, SessionId = sessionId, Runtime = s.Runtime, Cwd = s.Cwd, Text = text, CreatedAt = now, Image = image, ImageType = image is null ? null : imageType };
         db.Commands.Add(c);
         db.SaveChanges();
         return c.Id;
@@ -135,10 +135,10 @@ public sealed class IceStore
         var live = db.Commands.Where(c => (c.Status == "delivered" || c.Status == "running") && (machineId == null || c.MachineId == machineId)).AsNoTracking().ToList();
         foreach (var c in live.Where(c => c.Status == "delivered" && now - c.DeliveredAt >= DeliveredTimeout))
             db.Commands.Where(x => x.Id == c.Id && x.Status == "delivered")
-                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "no result from runner"));
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "no result from runner").SetProperty(x => x.Image, (byte[]?)null));
         foreach (var c in live.Where(c => c.Status == "running" && now - (c.HeartbeatAt ?? c.StartedAt ?? c.DeliveredAt) >= HeartbeatTimeout))
             db.Commands.Where(x => x.Id == c.Id && x.Status == "running")
-                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, HeartbeatExpired));
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, HeartbeatExpired).SetProperty(x => x.Image, (byte[]?)null));
     }
 
     public bool Heartbeat(long machineId, long commandId, DateTimeOffset now)
@@ -155,14 +155,14 @@ public sealed class IceStore
         // a freshly started runner holds nothing: whatever it had taken died with the old process
         if (fresh)
             db.Commands.Where(c => c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"))
-                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "runner restarted before finishing"));
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "runner restarted before finishing").SetProperty(x => x.Image, (byte[]?)null));
         Expire(db, now, machineId);
         var taken = new List<CommandEntity>();
         foreach (var c in db.Commands.Where(c => c.MachineId == machineId && c.Status == "queued").OrderBy(c => c.Id).ToList())
             // atomic claim: only one concurrent poll flips queued -> delivered
             if (db.Commands.Where(x => x.Id == c.Id && x.Status == "queued").ExecuteUpdate(u => u.SetProperty(x => x.Status, "delivered").SetProperty(x => x.DeliveredAt, now)) == 1)
                 taken.Add(c);
-        return taken.Select(c => new RunnerCommand(c.Id, c.Runtime, c.SessionId, c.Cwd, c.Text)).ToList();
+        return taken.Select(c => new RunnerCommand(c.Id, c.Runtime, c.SessionId, c.Cwd, c.Text) { Image = c.Image is null ? null : Convert.ToBase64String(c.Image), ImageType = c.Image is null ? null : c.ImageType }).ToList();
     }
 
     public bool Complete(long machineId, long commandId, CommandResult r, DateTimeOffset now)
@@ -172,6 +172,7 @@ public sealed class IceStore
         if (c is null) return false;
         c.Status = r.Ok ? "done" : "failed";
         c.Output = r.Output;
+        c.Image = null;
         db.SaveChanges();
         return true;
     }
@@ -181,7 +182,7 @@ public sealed class IceStore
     {
         using var db = Db();
         return db.Commands.Where(c => c.Id == commandId && c.MachineId == machineId && c.SessionId == sessionId && (c.Status == "queued" || c.Status == "delivered" || c.Status == "running"))
-            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "failed").SetProperty(c => c.Output, "dismissed")) == 1;
+            .ExecuteUpdate(u => u.SetProperty(c => c.Status, "failed").SetProperty(c => c.Output, "dismissed").SetProperty(c => c.Image, (byte[]?)null)) == 1;
     }
 
     public IReadOnlyList<MachineRow> ListMachines()

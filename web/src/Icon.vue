@@ -18,6 +18,7 @@ const paths: Record<string, string[]> = {
   logout: ['M10 4H5v16h5', 'M15 8l4 4-4 4', 'M19 12H9'],
   back: ['M15 6l-6 6 6 6'],
   plus: ['M12 5v14', 'M5 12h14'],
+  image: ['M3 5h18v14H3z', 'M3 16l5-5 4 4 3-3 6 6', 'M8.5 9v.01'],
 }
 defineProps<{ name: string }>()
 </script>
