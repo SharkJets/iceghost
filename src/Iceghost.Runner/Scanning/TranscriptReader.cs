@@ -11,7 +11,8 @@ public static class TranscriptReader
 
     /// <summary>User-role text the harness injects, not the human speaking.</summary>
     static readonly string[] Synthetic = ["<command-name>", "<command-message>", "<local-command-stdout>",
-        "<local-command-caveat>", "<environment_context>", "<user_instructions>"];
+        "<local-command-caveat>", "<environment_context>", "<user_instructions>",
+        "<task-notification>", "<system-reminder>"];
 
     static bool IsSynthetic(string? t) => t is not null && Synthetic.Any(t.TrimStart().StartsWith);
 

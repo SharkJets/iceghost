@@ -164,6 +164,20 @@ public class TranscriptReaderTests
         Assert.Equal(["user:fix it", "assistant:Done."], s.Tail.Select(e => e.Role + ":" + e.Text));
     }
 
+    static void AssertSkipped(string injected)
+    {
+        var s = TranscriptReader.Read(Runtime.Claude, [CU("fix it", "2026-10-25T10:00:00Z"), CA("Done.", "2026-10-25T10:01:00Z"),
+            CU(injected, "2026-10-25T10:02:00Z")])!;
+        Assert.True(s.TurnEnded);
+        Assert.Equal(["user:fix it", "assistant:Done."], s.Tail.Select(e => e.Role + ":" + e.Text));
+    }
+
+    [Fact]
+    public void Claude_task_notification_skipped() => AssertSkipped("  <task-notification>x</task-notification>");
+
+    [Fact]
+    public void Claude_system_reminder_skipped() => AssertSkipped("\\n<system-reminder>x</system-reminder>");
+
     [Fact]
     public void Codex_synthetic_user_messages_skipped()
     {
