@@ -268,7 +268,7 @@ pnpm --dir web test
 node --test electron/url.test.js
 ```
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET tests on Ubuntu, macOS and Windows, the web tests and build, and a runner build for all six RIDs uploaded as artifacts. `runner-release.yml` tests, builds and publishes a GitHub Release with archives and `SHA256SUMS` on `v*` tags. `pipeline.yml` pushes the server image on `main`.
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET tests on Ubuntu, macOS and Windows, the web tests and build, and a runner build for all six RIDs uploaded as artifacts. `runner-release.yml` tests, builds and publishes a GitHub Release with archives and `SHA256SUMS` on `v*` tags. `pipeline.yml` builds the server image on pull requests and pushes it on `main`.
 
 ## Troubleshooting
 
