@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, nearBottom } from './format'
+import { ago, commandLabel } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -19,8 +19,17 @@ it('no v-html in src', () => {
     expect(readFileSync(f, 'utf8'), f).not.toMatch(/v-html|innerHTML/)
 })
 
-it('nearBottom', () => {
-  expect(nearBottom(850, 150, 1100)).toBe(true)
-  expect(nearBottom(0, 800, 2000)).toBe(false)
-  expect(nearBottom(700, 800, 1600)).toBe(true)
+describe('commandLabel', () => {
+  const n = new Date('2026-10-25T10:10:00Z')
+  const run = { status: 'running', startedAt: '2026-10-25T10:00:00Z', heartbeatAt: '2026-10-25T10:09:50Z' }
+  it('queued', () => expect(commandLabel({ status: 'queued' }, '', n, false)).toEqual({ text: 'waiting for runner', tone: 'normal' }))
+  it('delivered slot', () => expect(commandLabel({ status: 'delivered' }, '', n, false).text).toBe('waiting for a free slot'))
+  it('delivered behind', () => expect(commandLabel({ status: 'delivered' }, '', n, true).text).toBe('queued behind previous message'))
+  it('not responding', () => expect(commandLabel({ ...run, heartbeatAt: '2026-10-25T10:08:00Z' }, '2026-10-25T10:09:59Z', n, false)).toEqual({ text: 'runner not responding', tone: 'bad' }))
+  it('stuck', () => expect(commandLabel(run, '2026-10-25T10:03:00Z', n, false)).toEqual({ text: 'quiet for 7m, may be stuck', tone: 'warn' }))
+  it('busy', () => expect(commandLabel(run, '2026-10-25T10:09:30Z', n, false)).toEqual({ text: 'running 10m · last activity 30s ago', tone: 'busy' }))
+  it('done/failed', () => {
+    expect(commandLabel({ status: 'done' }, '', n, false)).toEqual({ text: 'done', tone: 'normal' })
+    expect(commandLabel({ status: 'failed' }, '', n, false).tone).toBe('bad')
+  })
 })

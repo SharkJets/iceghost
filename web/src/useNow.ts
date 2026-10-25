@@ -7,9 +7,9 @@ export function usePoll(fn: () => Promise<void>, ms: number) {
   onUnmounted(() => clearInterval(t))
 }
 
-export function ticker() {
+export function ticker(ms = 1000) {
   const n = ref(new Date())
-  const t = setInterval(() => (n.value = new Date()), 10000)
+  const t = setInterval(() => (n.value = new Date()), ms)
   onUnmounted(() => clearInterval(t))
   return n
 }
