@@ -110,4 +110,12 @@ public class DeployFilesTests
             Assert.Contains(rid, text);
         Assert.Contains("dotnet test Iceghost.slnx", text);
     }
+
+    [Fact]
+    public void Docs_changes_skip_image_build()
+    {
+        var y = Read(".github/workflows/pipeline.yml");
+        foreach (var x in new[] { "paths-ignore", "docs/**", "fetch-depth: 0", "git describe --tags" })
+            Assert.Contains(x, y);
+    }
 }
