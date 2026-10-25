@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago } from './format'
+import { ago, nearBottom } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -17,4 +17,10 @@ function files(d: string): string[] {
 it('no v-html in src', () => {
   for (const f of files(__dirname).filter(f => !f.endsWith('format.test.ts')))
     expect(readFileSync(f, 'utf8'), f).not.toMatch(/v-html|innerHTML/)
+})
+
+it('nearBottom', () => {
+  expect(nearBottom(850, 150, 1100)).toBe(true)
+  expect(nearBottom(0, 800, 2000)).toBe(false)
+  expect(nearBottom(700, 800, 1600)).toBe(true)
 })

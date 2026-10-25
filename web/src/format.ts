@@ -7,3 +7,6 @@ export function ago(iso: string, now: Date): string {
 }
 
 export const folder = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd
+
+export const nearBottom = (scrollY: number, viewport: number, docHeight: number, slack = 150) =>
+  docHeight - (scrollY + viewport) <= slack

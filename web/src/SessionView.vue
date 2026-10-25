@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { api, Unauthorized, type SessionDetail } from './api'
-import { ago, folder } from './format'
+import { ago, folder, nearBottom } from './format'
 import { usePoll, ticker } from './useNow'
 import { guard } from './route'
 
@@ -13,6 +13,16 @@ const err = ref('')
 const sending = ref(false)
 const loadErr = ref(false)
 const now = ticker()
+const pinned = ref(false)
+const bottom = (behavior: ScrollBehavior) => window.scrollTo({ top: document.documentElement.scrollHeight, behavior })
+watch(d, async (n, o) => {
+  const stick = pinned.value || nearBottom(window.scrollY, window.innerHeight, document.documentElement.scrollHeight)
+  await nextTick()
+  if (!o) bottom('instant')
+  else if (stick) bottom('smooth')
+  const last = n?.commands.reduce((a, c) => (a && a.createdAt > c.createdAt ? a : c), null as SessionDetail['commands'][number] | null)
+  if (last && (last.status === 'done' || last.status === 'failed')) pinned.value = false
+})
 const url = `/api/sessions/${props.machineId}/${encodeURIComponent(props.sessionId)}`
 usePoll(async () => {
   try { d.value = await api<SessionDetail>(url); loadErr.value = false }
@@ -24,7 +34,7 @@ const send = guard(async () => {
   if (!t) return
   err.value = ''
   sending.value = true
-  try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; d.value = await api<SessionDetail>(url) }
+  try { await api(url + '/messages', 'POST', { text: t }); text.value = ''; pinned.value = true; d.value = await api<SessionDetail>(url) }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = 'Send failed (1 to 20000 chars)' }
   finally { sending.value = false }
 })
