@@ -123,4 +123,19 @@ public sealed class RunnerEndpointsTests : IDisposable
         Assert.Empty((await resp.Content.ReadFromJsonAsync<RunnerCommand[]>(IceJson.Options))!);
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2));
     }
+
+    [Fact]
+    public async Task Heartbeat_requires_bearer()
+    {
+        var (a, ta) = store.CreateMachine("a");
+        var (_, tb) = store.CreateMachine("b");
+        store.ApplyReport(a, new RunnerReport("h", "linux", [Sess()]), DateTimeOffset.UtcNow);
+        var cid = store.Enqueue(a, "s1", "hi", DateTimeOffset.UtcNow)!.Value;
+        store.TakeCommands(a, DateTimeOffset.UtcNow);
+        var url = $"/api/runner/commands/{cid}/heartbeat";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.PostAsync(url, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await http.SendAsync(Req(HttpMethod.Post, url, tb))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await http.SendAsync(Req(HttpMethod.Post, url, ta))).StatusCode);
+        Assert.Equal("running", store.GetSession(a, "s1", DateTimeOffset.UtcNow)!.Commands[0].Status);
+    }
 }

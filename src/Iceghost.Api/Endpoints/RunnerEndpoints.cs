@@ -61,6 +61,9 @@ public static class RunnerEndpoints
                 ? Results.NoContent() : Results.NotFound();
         });
 
+        g.MapPost("/commands/{id:long}/heartbeat", (HttpContext http, IceStore store, long id) =>
+            store.Heartbeat((long)http.Items[MachineKey]!, id, time.GetUtcNow()) ? Results.NoContent() : Results.NotFound());
+
         return app;
     }
 }
