@@ -1,0 +1,15 @@
+services:
+  iceghost:
+    build: .
+    image: skidvis/iceghost:latest
+    env_file: .env
+    environment:
+      ICEGHOST_DATA: /data
+    ports:
+      - "${ICEGHOST_PORT:-8080}:8080"
+    volumes:
+      - iceghost-data:/data
+    restart: unless-stopped
+
+volumes:
+  iceghost-data:
