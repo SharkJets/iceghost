@@ -17,6 +17,8 @@ public class SessionScannerTests : IDisposable
     [Fact] public void Question_needs_input() => Assert.Equal(SessionState.NeedsInput, StateClassifier.Classify(Snap(true, "Ship it? \n", TimeSpan.FromHours(1)), Now));
     [Fact] public void Ended_is_done() => Assert.Equal(SessionState.Done, StateClassifier.Classify(Snap(true, "Done.", TimeSpan.FromHours(1)), Now));
     [Fact] public void Fresh_working() => Assert.Equal(SessionState.Working, StateClassifier.Classify(Snap(false, "x", TimeSpan.FromSeconds(30)), Now));
+    [Fact] public void Pending_tool_11h_needs_input() => Assert.Equal(SessionState.NeedsInput, StateClassifier.Classify(Snap(false, "x", TimeSpan.FromHours(11), true), Now));
+    [Fact] public void Pending_tool_13h_stalled() => Assert.Equal(SessionState.Stalled, StateClassifier.Classify(Snap(false, "x", TimeSpan.FromHours(13), true), Now));
     [Fact] public void Pending_tool_needs_input() => Assert.Equal(SessionState.NeedsInput, StateClassifier.Classify(Snap(false, "x", TimeSpan.FromMinutes(3), true), Now));
     [Fact] public void Quiet_stalled() => Assert.Equal(SessionState.Stalled, StateClassifier.Classify(Snap(false, "x", TimeSpan.FromMinutes(11)), Now));
 
