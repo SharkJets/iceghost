@@ -58,7 +58,7 @@ public sealed class RunnerLoop(
             await client.ResultAsync(cmd.Id, new CommandResult(false, "unknown session on this machine"), ct);
             return;
         }
-        cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd };
+        cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd, Permission = known.Permission };
 
         try { await ReportAsync(cmd, ct); } // show the session as Working while it runs
         catch (Exception e) when (e is not UnauthorizedRunnerException && !ct.IsCancellationRequested) { }

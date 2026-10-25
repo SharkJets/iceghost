@@ -167,4 +167,20 @@ public class RunnerLoopTests
     {
         public Task<CommandResult> SendAsync(RunnerCommand cmd, CancellationToken ct) => throw new InvalidOperationException("boom");
     }
+
+    [Fact]
+    public async Task Permission_copied_from_scan()
+    {
+        RunnerCommand? seen = null;
+        var t = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        var h = new Handler(Server(new RunnerCommand(7, Runtime.Claude, "s1", "C:\\p", "hi") { Permission = "bypassPermissions" })) { Time = t };
+        var client = new ServerClient(new HttpClient(h) { BaseAddress = new Uri("http://x/") }, "tok");
+        var loop = new RunnerLoop(client, _ => [S("s1") with { Permission = "plan" }],
+            _ => new FakeRuntimeAdapter(c => { seen = c; return new(true, "ok"); }), t);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Any(c => c.Path.EndsWith("/7/result")));
+        cts.Cancel(); await run;
+        Assert.Equal("plan", seen!.Permission);
+    }
 }
