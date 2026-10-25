@@ -76,7 +76,7 @@ public static class TranscriptReader
         if (type is not ("user" or "assistant")) return;
         a.Id ??= Str(r, "sessionId");
         a.Cwd ??= Str(r, "cwd");
-        if (type == "user" && Str(r, "entrypoint") == "cli") a.CliMode = Str(r, "permissionMode"); // sdk-cli lines are iceghost's own turns
+        if (type == "user" && !(Str(r, "entrypoint") == "sdk-cli" && Str(r, "permissionMode") == "default")) a.CliMode = Str(r, "permissionMode"); // sdk-cli default = old headless resume
         if (Flag(r, "isMeta") || Flag(r, "isCompactSummary")) return;
         var at = Stamp(r, a);
         if (!r.TryGetProperty("message", out var m) || m.ValueKind != JsonValueKind.Object) return;

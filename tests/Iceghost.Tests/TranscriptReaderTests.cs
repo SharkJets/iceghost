@@ -245,8 +245,14 @@ public class TranscriptReaderTests
     public void Claude_permission_ignores_sdk_cli_default()
     {
         Assert.Equal("auto", TranscriptReader.Read(Runtime.Claude, [CUm("cli", "auto"), CUm("sdk-cli", "default")])!.Permission);
-        Assert.Null(TranscriptReader.Read(Runtime.Claude, [CUm("sdk-cli", "plan")])!.Permission);
+        Assert.Null(TranscriptReader.Read(Runtime.Claude, [CUm("sdk-cli", "default")])!.Permission);
         Assert.Null(TranscriptReader.Read(Runtime.Claude, [CUm("cli", "default")])!.Permission);
+    }
+
+    [Fact]
+    public void Claude_permission_from_sdk_cli_non_default()
+    {
+        Assert.Equal("acceptEdits", TranscriptReader.Read(Runtime.Claude, [CUm("sdk-cli", "acceptEdits"), CUm("sdk-cli", "acceptEdits")])!.Permission);
     }
 
     [Fact]
