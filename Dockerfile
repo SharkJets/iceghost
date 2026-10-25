@@ -1,6 +1,6 @@
 FROM node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS web
 WORKDIR /web
-RUN npm install -g pnpm@12.3.4
+RUN npm install -g pnpm@10
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
@@ -14,7 +14,7 @@ COPY src/Iceghost.Api/Iceghost.Api.csproj src/Iceghost.Api/
 RUN dotnet restore src/Iceghost.Api/Iceghost.Api.csproj
 COPY src/Iceghost.Contracts/ src/Iceghost.Contracts/
 COPY src/Iceghost.Api/ src/Iceghost.Api/
-COPY --from=web /web/dist src/Iceghost.Api/wwwroot
+COPY --from=web /src/Iceghost.Api/wwwroot src/Iceghost.Api/wwwroot
 RUN dotnet publish src/Iceghost.Api/Iceghost.Api.csproj -c Release --no-restore -o /app && mkdir -p /image-data
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled@sha256:9651fa59abcdf177c30392cb44a820605ca5d618429ab37acbf6e7c644510b02
