@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 
 namespace Iceghost.Tests;
 
+[Collection("ApiEnv")]
 public class UiEndpointsTests
 {
     const string Pw = "correct horse battery";
@@ -59,6 +60,20 @@ public class UiEndpointsTests
         var r = await f.CreateClient().PostAsJsonAsync("/api/login", new { password = "nope" });
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
         Assert.False(r.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public async Task Cross_site_mutation_403_and_machine_list_has_no_token()
+    {
+        using var f = Make();
+        var (c, _) = await LoggedIn(f);
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/machines") { Content = JsonContent.Create(new { name = "m" }) };
+        req.Headers.Add("Sec-Fetch-Site", "same-site");
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(req)).StatusCode);
+        var ok = new HttpRequestMessage(HttpMethod.Post, "/api/machines") { Content = JsonContent.Create(new { name = "m" }) };
+        ok.Headers.Add("Sec-Fetch-Site", "same-origin");
+        Assert.Equal(HttpStatusCode.Created, (await c.SendAsync(ok)).StatusCode);
+        Assert.DoesNotContain("token", (await c.GetStringAsync("/api/machines")).ToLowerInvariant());
     }
 
     [Fact]
