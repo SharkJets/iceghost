@@ -17,7 +17,8 @@ public static class TranscriptReader
 
     sealed class Acc
     {
-        public string? Id, Cwd, Title, FirstUser;
+        public string? Id, Cwd, Title, FirstUser, ModeLine, CliMode, CodexMode;
+        public bool HasModeLine;
         public DateTimeOffset Last = DateTimeOffset.MinValue;
         public bool Ended;
         public readonly HashSet<string> Pending = [];
@@ -55,17 +56,27 @@ public static class TranscriptReader
         }
         if (a.Id is null) return null;
         return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? a.FirstUser,
-            a.Last, a.Ended, a.Pending.Count > 0, a.Tail);
+            a.Last, a.Ended, a.Pending.Count > 0, a.Tail)
+        {
+            Permission = runtime switch
+            {
+                Runtime.Claude => (a.HasModeLine ? a.ModeLine : a.CliMode) is { } m && m != "default" ? m : null,
+                Runtime.Codex => a.CodexMode,
+                _ => null,
+            },
+        };
     }
 
     static void Claude(JsonElement r, Acc a)
     {
         var type = Str(r, "type");
+        if (type == "permission-mode") { a.ModeLine = Str(r, "permissionMode"); a.HasModeLine = true; return; }
         if (type == "ai-title") { a.Title = Str(r, "aiTitle") ?? a.Title; return; }
         if (r.TryGetProperty("isSidechain", out var sc) && sc.ValueKind == JsonValueKind.True) return;
         if (type is not ("user" or "assistant")) return;
         a.Id ??= Str(r, "sessionId");
         a.Cwd ??= Str(r, "cwd");
+        if (type == "user" && Str(r, "entrypoint") == "cli") a.CliMode = Str(r, "permissionMode"); // sdk-cli lines are iceghost's own turns
         if (Flag(r, "isMeta") || Flag(r, "isCompactSummary")) return;
         var at = Stamp(r, a);
         if (!r.TryGetProperty("message", out var m) || m.ValueKind != JsonValueKind.Object) return;
@@ -108,6 +119,10 @@ public static class TranscriptReader
         switch (Str(r, "type"))
         {
             case "session_meta": a.Id ??= Str(p, "id"); a.Cwd ??= Str(p, "cwd"); break;
+            case "turn_context": // first one = the user's own launch; later exec turns record read-only
+                if (a.CodexMode is null && p.TryGetProperty("sandbox_policy", out var sp))
+                    a.CodexMode = Str(sp, "type") ?? Str(sp, "mode");
+                break;
             case "event_msg":
                 var et = Str(p, "type");
                 if (et == "task_complete")

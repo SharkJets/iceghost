@@ -228,4 +228,34 @@ public class TranscriptReaderTests
         ];
         Assert.False(TranscriptReader.Read(Runtime.Pi, lines)!.PendingTool);
     }
+
+    static string PM(string mode) => $$"""{"type":"permission-mode","permissionMode":"{{mode}}","sessionId":"s1"}""";
+    static string CUm(string entry, string mode) =>
+        $$$"""{"type":"user","sessionId":"s1","cwd":"C:\\p","timestamp":"2026-10-25T10:00:00Z","entrypoint":"{{{entry}}}","permissionMode":"{{{mode}}}","message":{"role":"user","content":"hi"}}""";
+
+    [Fact]
+    public void Claude_permission_from_last_mode_line()
+    {
+        var s = TranscriptReader.Read(Runtime.Claude, [PM("plan"), CUm("sdk-cli", "default"), PM("auto"), CA("ok", "2026-10-25T10:01:00Z")])!;
+        Assert.Equal("auto", s.Permission);
+        Assert.Equal("acceptEdits", TranscriptReader.Read(Runtime.Claude, [CUm("cli", "acceptEdits")])!.Permission);
+    }
+
+    [Fact]
+    public void Claude_permission_ignores_sdk_cli_default()
+    {
+        Assert.Equal("auto", TranscriptReader.Read(Runtime.Claude, [CUm("cli", "auto"), CUm("sdk-cli", "default")])!.Permission);
+        Assert.Null(TranscriptReader.Read(Runtime.Claude, [CUm("sdk-cli", "plan")])!.Permission);
+        Assert.Null(TranscriptReader.Read(Runtime.Claude, [CUm("cli", "default")])!.Permission);
+    }
+
+    [Fact]
+    public void Codex_permission_from_first_turn_context()
+    {
+        var lines = CodexLines(true);
+        lines.Insert(1, """{"timestamp":"2026-10-25T10:00:00Z","type":"turn_context","payload":{"sandbox_policy":{"type":"workspace-write"}}}""");
+        lines.Add("""{"timestamp":"2026-10-25T10:00:04Z","type":"turn_context","payload":{"sandbox_policy":{"type":"read-only"}}}""");
+        Assert.Equal("workspace-write", TranscriptReader.Read(Runtime.Codex, lines)!.Permission);
+        Assert.Null(TranscriptReader.Read(Runtime.Codex, CodexLines(true))!.Permission);
+    }
 }
