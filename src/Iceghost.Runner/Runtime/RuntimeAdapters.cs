@@ -139,7 +139,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
                     || stderr.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
                     || stderr.Contains("invalid", StringComparison.OrdinalIgnoreCase))
                 ? new(false, $"{name}: session not found")
-                : new(false, $"{name} exited with code {p.ExitCode}: {Redact(stderr.Trim())}");
+                : new(false, $"{name} exited with code {p.ExitCode}: {Redact(FailureMessage(stdout, stderr))}");
         }
         try { return new(true, Parse(stdout)); }
         catch (Exception e) when (e is FormatException or System.Text.Json.JsonException)
@@ -147,6 +147,12 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
             return new(false, $"{name}: {e.Message}");
         }
     }
+
+    /// <summary>Failure reason: stderr, else the stdout tail (some CLIs report errors on stdout).</summary>
+    protected virtual string FailureMessage(string stdout, string stderr) =>
+        stderr.Trim().Length > 0 ? stderr.Trim() : Tail(stdout);
+
+    protected static string Tail(string s) { s = s.Trim(); return s.Length > 500 ? s[^500..] : s; }
 
     private static string Redact(string s)
     {
@@ -182,6 +188,34 @@ public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeo
         ["exec", "resume", "--json", "--skip-git-repo-check", .. extra, sessionId, "-"];
     protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
     protected override string Parse(string o) => OutputParsers.Codex(o);
+
+    /// <summary>Codex reports failures as JSONL on stdout: last turn.failed, else last error event.</summary>
+    protected override string FailureMessage(string stdout, string stderr)
+    {
+        if (stderr.Trim().Length > 0) return stderr.Trim();
+        string? failed = null, error = null;
+        foreach (var line in stdout.Split('\n'))
+        {
+            try
+            {
+                using var d = System.Text.Json.JsonDocument.Parse(line.Trim());
+                var r = d.RootElement;
+                var type = r.TryGetProperty("type", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String ? t.GetString() : null;
+                if (type == "turn.failed" && r.TryGetProperty("error", out var e) && e.TryGetProperty("message", out var fm) && fm.GetString() is { } f) failed = f;
+                else if (type == "error" && r.TryGetProperty("message", out var m) && m.GetString() is { } s) error = s;
+            }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { }
+        }
+        var msg = failed ?? error;
+        if (msg is null) return Tail(stdout);
+        try
+        {
+            using var d = System.Text.Json.JsonDocument.Parse(msg);
+            if (d.RootElement.TryGetProperty("error", out var e) && e.TryGetProperty("message", out var im) && im.GetString() is { } inner) msg = inner;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException) { }
+        return msg;
+    }
 }
 
 /// <summary>Pi reads the prompt from stdin like the others (never on the command line).</summary>

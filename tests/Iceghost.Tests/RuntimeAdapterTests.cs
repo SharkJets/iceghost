@@ -71,6 +71,39 @@ public sealed class RuntimeAdapterTests
         finally { Directory.Delete(dir, true); }
     }
 
+    private static async Task<CommandResult> FailingStdout(bool codex, string stdout)
+    {
+        if (!OperatingSystem.IsWindows()) return new(false, "unknown input item type");
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "out.txt"), stdout);
+            File.WriteAllText(Path.Combine(dir, "fake.cmd"), "@type \"%~dp0out.txt\"\r\n@exit /b 1\r\n");
+            var path = Path.Combine(dir, "fake.cmd");
+            IRuntimeAdapter a = codex ? new CodexAdapter([], T, path) : new ClaudeAdapter([], T, path);
+            return await a.SendAsync(Cmd("hi"), default);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task Codex_failure_surfaces_turn_failed_message()
+    {
+        var inner = "{\\\"error\\\":{\\\"message\\\":\\\"unknown input item type\\\"}}";
+        var r = await FailingStdout(true, "{\"type\":\"thread.started\"}\n{\"type\":\"error\",\"message\":\"" + inner + "\"}\n{\"type\":\"turn.failed\",\"error\":{\"message\":\"" + inner + "\"}}\n");
+        Assert.False(r.Ok);
+        Assert.Contains("unknown input item type", r.Output);
+        Assert.DoesNotContain("thread.started", r.Output);
+    }
+
+    [Fact]
+    public async Task Empty_stderr_falls_back_to_stdout_tail()
+    {
+        var r = await FailingStdout(false, "boom from stdout\n");
+        Assert.False(r.Ok);
+        Assert.Contains("boom from stdout", r.Output);
+    }
+
     [Fact]
     public void Prompt_not_in_argv()
     {
