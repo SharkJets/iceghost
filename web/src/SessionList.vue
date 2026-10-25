@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api, Unauthorized, type SessionRow, type MachineRow } from './api'
 import { ago, folder } from './format'
 import { usePoll, ticker } from './useNow'
@@ -17,11 +17,24 @@ usePoll(async () => {
 }, 5000)
 
 const order = ['needsInput', 'stalled', 'working', 'done']
-const groups = computed(() => order.map(s => ({ s, items: rows.value.filter(r => r.state === s) })).filter(g => g.items.length))
+const stored = localStorage.getItem('ig.machine')
+const sel = ref<number | null>(stored ? Number(stored) : null)
+watch(sel, v => v === null ? localStorage.removeItem('ig.machine') : localStorage.setItem('ig.machine', String(v)))
+const machines = computed(() => [...new Map(rows.value.map(r => [r.machineId, r.machine])).entries()].sort((a, b) => a[1].localeCompare(b[1])))
+const eff = computed(() => machines.value.some(m => m[0] === sel.value) ? sel.value : null)
+const groups = computed(() => {
+  const rs = eff.value === null ? rows.value : rows.value.filter(r => r.machineId === eff.value)
+  return order.map(s => ({ s, items: rs.filter(r => r.state === s) })).filter(g => g.items.length)
+})
+const pill = (on: boolean) => `rounded px-2 py-0.5 text-xs ${on ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-300'}`
 </script>
 <template>
   <div class="space-y-4">
     <p v-if="!rows.length" class="text-slate-400">No sessions yet.</p>
+    <div v-if="machines.length > 1" class="flex flex-wrap gap-1">
+      <button :class="pill(eff === null)" @click="sel = null">All</button>
+      <button v-for="[id, name] in machines" :key="id" :class="[pill(eff === id), offline(id) && 'opacity-50']" @click="sel = id">{{ name }}</button>
+    </div>
     <section v-for="g in groups" :key="g.s">
       <h2 class="mb-1 text-xs uppercase tracking-wide text-slate-400">{{ g.s }}</h2>
       <a v-for="r in g.items" :key="`${r.machineId}/${r.sessionId}`" :href="`#/s/${r.machineId}/${encodeURIComponent(r.sessionId)}`"
