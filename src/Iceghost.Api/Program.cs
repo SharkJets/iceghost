@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 
+Iceghost.Api.DotEnv.Load();
 var builder = WebApplication.CreateBuilder(args);
 var dev = Environment.GetEnvironmentVariable("ICEGHOST_DEV") == "1";
 

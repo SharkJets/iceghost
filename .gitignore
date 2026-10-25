@@ -7,3 +7,9 @@ dist/
 src/Iceghost.Api/wwwroot/
 TestResults/
 electron/dist/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
