@@ -10,6 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Iceghost.Tests;
 
+[CollectionDefinition("ApiEnv", DisableParallelization = true)]
+public sealed class ApiEnvCollection { }
+
+[Collection("ApiEnv")]
 public sealed class RunnerEndpointsTests : IDisposable
 {
     static readonly object Gate = new();
