@@ -226,6 +226,29 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Late_result_overrides_heartbeat_expiry()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.Equal("failed", s.GetSession(id, "s1", T.AddMinutes(3))!.Commands[0].Status);
+        Assert.True(s.Complete(id, 1, new(true, "ok"), T.AddMinutes(4)));
+        var c = s.GetSession(id, "s1", T.AddMinutes(4))!.Commands[0];
+        Assert.Equal(("done", "ok"), (c.Status, c.Output));
+        Assert.False(s.Complete(id, 1, new(true, "again"), T.AddMinutes(4)));
+    }
+
+    [Fact]
+    public void Late_result_does_not_override_dismiss()
+    {
+        var s = Running(out var id);
+        s.Heartbeat(id, 1, T);
+        Assert.True(s.Dismiss(id, "s1", 1));
+        Assert.False(s.Complete(id, 1, new(true, "ok"), T));
+        var c = s.GetSession(id, "s1", T)!.Commands[0];
+        Assert.Equal(("failed", "dismissed"), (c.Status, c.Output));
+    }
+
+    [Fact]
     public void Complete_from_running()
     {
         var s = Running(out var id);

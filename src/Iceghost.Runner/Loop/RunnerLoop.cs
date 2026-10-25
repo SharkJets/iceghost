@@ -1,3 +1,4 @@
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -120,9 +121,19 @@ public sealed class RunnerLoop(
         var known = scan(time.GetUtcNow()).FirstOrDefault(s => s.Runtime == cmd.Runtime && s.SessionId == cmd.SessionId);
         if (known is null)
         {
-            await client.ResultAsync(cmd.Id, new CommandResult(false, "unknown session on this machine"), ct);
+            await PostResultAsync(cmd.Id, new CommandResult(false, "unknown session on this machine"), ct);
             return;
         }
+        // dismissed/expired while queued behind another command (or across a server restart): don't run it
+        try
+        {
+            if (!await client.HeartbeatAsync(cmd.Id, ct))
+            {
+                Console.Error.WriteLine($"command {cmd.Id} no longer active on server (dismissed or expired), skipping");
+                return;
+            }
+        }
+        catch (Exception e) when (e is not UnauthorizedRunnerException && !ct.IsCancellationRequested) { } // server may be down: run anyway
         cmd = cmd with { Runtime = known.Runtime, Cwd = known.Cwd, Permission = known.Permission };
         var key = (cmd.Runtime, cmd.SessionId);
 
@@ -134,31 +145,52 @@ public sealed class RunnerLoop(
 
             using var turn = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var idled = false;
-            var monitor = MonitorAsync(cmd, turn, () => idled = true, ct);
+            var gone = false;
+            var monitor = MonitorAsync(cmd, turn, () => idled = true, () => gone = true, ct);
             CommandResult result;
             try { result = await adapters(cmd.Runtime).SendAsync(cmd, turn.Token); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception e) { result = new CommandResult(false, e.Message); }
             turn.Cancel();
             await monitor;
-            if (idled) result = new CommandResult(false, $"stopped: no activity for {_idle.TotalMinutes:0.##} min");
-
-            await client.ResultAsync(cmd.Id, result, ct);
+            if (gone) Console.Error.WriteLine($"command {cmd.Id} dismissed on server, stopped"); // nobody is waiting for a result
+            else
+            {
+                if (idled) result = new CommandResult(false, $"stopped: no activity for {_idle.TotalMinutes:0.##} min");
+                await PostResultAsync(cmd.Id, result, ct);
+            }
         }
         finally { lock (_gate) _running.Remove(key); }
         _force = true;
         await ReportAsync(ct);
     }
 
-    // Heartbeat every 15 s while the adapter runs, and cancel the turn when the transcript has gone quiet for _idle.
-    private async Task MonitorAsync(RunnerCommand cmd, CancellationTokenSource turn, Action onIdle, CancellationToken ct)
+    private static readonly TimeSpan[] ResultRetries = [.. new[] { 2.0, 5, 10, 20, 30, 60 }.Select(TimeSpan.FromSeconds)];
+
+    // Rides out a server outage/reboot; 404 means the command is gone (dismissed/expired) so there is nothing to deliver.
+    private async Task PostResultAsync(long id, CommandResult r, CancellationToken ct)
+    {
+        for (var i = 0; ; i++)
+        {
+            try { await client.ResultAsync(id, r, ct); return; }
+            catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.NotFound) { return; }
+            catch (Exception e) when (e is not UnauthorizedRunnerException && !ct.IsCancellationRequested)
+            {
+                if (i == ResultRetries.Length) { Console.Error.WriteLine($"result for command {id} not delivered, giving up: {e.Message}"); return; }
+                await Task.Delay(ResultRetries[i], time, ct);
+            }
+        }
+    }
+
+    // Heartbeat every 15 s while the adapter runs, cancel the turn when the transcript has gone quiet for _idle or the server dropped the command.
+    private async Task MonitorAsync(RunnerCommand cmd, CancellationTokenSource turn, Action onIdle, Action onGone, CancellationToken ct)
     {
         var started = time.GetUtcNow();
         try
         {
             while (true)
             {
-                try { await client.HeartbeatAsync(cmd.Id, turn.Token); }
+                try { if (!await client.HeartbeatAsync(cmd.Id, turn.Token)) { onGone(); turn.Cancel(); return; } }
                 catch (UnauthorizedRunnerException e) { _fatal = e; turn.Cancel(); return; }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {

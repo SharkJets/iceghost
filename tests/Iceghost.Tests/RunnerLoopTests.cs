@@ -334,6 +334,58 @@ public class RunnerLoopTests
         Assert.Equal(new CommandResult(true, "done 1"), Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/1/result")).Body));
     }
 
+    private static bool Is(HttpRequestMessage r, long id, string what) => r.RequestUri!.AbsolutePath.EndsWith($"/{id}/{what}");
+
+    [Fact]
+    public async Task Dismissed_command_is_skipped()
+    {
+        var ran = false;
+        var srv = Server(C(1, "s1"));
+        var (loop, h, t) = Make(r => Is(r, 1, "heartbeat") ? new(HttpStatusCode.NotFound) : srv(r),
+            _ => new FakeRuntimeAdapter(_ => { ran = true; return new(true, ""); }));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => Posted(h, 1, "heartbeat"));
+        for (var i = 0; i < 20; i++) { await Task.Delay(5); t.Advance(TimeSpan.FromSeconds(1)); }
+        cts.Cancel(); await run;
+        Assert.False(ran);
+        Assert.False(Posted(h, 1, "result"));
+    }
+
+    [Fact]
+    public async Task Dismissed_while_running_cancels_and_releases_session()
+    {
+        var gate = new Gate(); // never released: command 1 can only end by cancellation
+        var beats = 0;
+        var srv = Server(C(1, "s1"), C(2, "s1"));
+        var (loop, h, t) = Make(r => Is(r, 1, "heartbeat") && Interlocked.Increment(ref beats) > 2 ? new(HttpStatusCode.NotFound) : srv(r), _ => gate);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => gate.Started.Count == 2); // pre-check 204, monitor beat 204, then 404 cancels the turn
+        Assert.Equal(new long[] { 1, 2 }, gate.Started);
+        Assert.False(Posted(h, 1, "result"));
+        gate.Release();
+        await Pump(t, () => Posted(h, 2, "result"));
+        cts.Cancel(); await run;
+        Assert.False(Posted(h, 1, "result"));
+    }
+
+    [Fact]
+    public async Task Result_retried_after_outage()
+    {
+        var posts = 0;
+        var srv = Server(C(1, "s1"));
+        var (loop, h, t) = Make(r => Is(r, 1, "result") && Interlocked.Increment(ref posts) <= 2 ? new(HttpStatusCode.BadGateway) : srv(r));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Count(c => c.Path.EndsWith("/1/result")) >= 3);
+        for (var i = 0; i < 20; i++) { await Task.Delay(5); t.Advance(TimeSpan.FromSeconds(1)); }
+        cts.Cancel(); await run;
+        var results = h.Snapshot().Where(c => c.Path.EndsWith("/1/result")).ToList();
+        Assert.Equal(3, results.Count);
+        Assert.Equal(new CommandResult(true, "echo hi"), Body<CommandResult>(results[2].Body));
+    }
+
     // Real transcript files read by the real SessionScanner/TranscriptReader/StateClassifier.
     private sealed class Tree : IDisposable
     {

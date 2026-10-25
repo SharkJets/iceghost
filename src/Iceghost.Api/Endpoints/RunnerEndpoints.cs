@@ -2,6 +2,7 @@ using Iceghost.Api.Data;
 using Iceghost.Contracts;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Hosting;
 
 namespace Iceghost.Api.Endpoints;
 
@@ -37,18 +38,21 @@ public static class RunnerEndpoints
             return Results.NoContent();
         });
 
-        g.MapGet("/commands", async (HttpContext http, IceStore store, int? waitSeconds, bool? fresh) =>
+        g.MapGet("/commands", async (HttpContext http, IceStore store, IHostApplicationLifetime life, int? waitSeconds, bool? fresh) =>
         {
             var id = (long)http.Items[MachineKey]!;
             var first = fresh == true;
             var deadline = time.GetTimestamp() + TimeSpan.FromSeconds(ClampWait(waitSeconds ?? 0)).Ticks * time.TimestampFrequency / TimeSpan.TicksPerSecond;
+            // once shutdown starts, never mark commands delivered into a response that may not arrive
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, life.ApplicationStopping);
             while (true)
             {
+                if (life.ApplicationStopping.IsCancellationRequested) return Results.Json(Array.Empty<RunnerCommand>(), IceJson.Options);
                 var cmds = store.TakeCommands(id, time.GetUtcNow(), first);
                 first = false;
                 if (cmds.Count > 0 || time.GetTimestamp() >= deadline) return Results.Json(cmds, IceJson.Options);
                 // ponytail: 1 s DB polling, signal per machine if latency matters
-                try { await Task.Delay(1000, http.RequestAborted); }
+                try { await Task.Delay(1000, cts.Token); }
                 catch (OperationCanceledException) { return Results.Json(Array.Empty<RunnerCommand>(), IceJson.Options); }
             }
         });

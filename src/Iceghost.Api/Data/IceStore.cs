@@ -128,6 +128,8 @@ public sealed class IceStore
         return c.Id;
     }
 
+    const string HeartbeatExpired = "runner stopped responding (killed or offline)";
+
     static void Expire(IceDb db, DateTimeOffset now, long? machineId)
     {
         var live = db.Commands.Where(c => (c.Status == "delivered" || c.Status == "running") && (machineId == null || c.MachineId == machineId)).AsNoTracking().ToList();
@@ -136,7 +138,7 @@ public sealed class IceStore
                 .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "no result from runner"));
         foreach (var c in live.Where(c => c.Status == "running" && now - (c.HeartbeatAt ?? c.StartedAt ?? c.DeliveredAt) >= HeartbeatTimeout))
             db.Commands.Where(x => x.Id == c.Id && x.Status == "running")
-                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, "runner stopped responding (killed or offline)"));
+                .ExecuteUpdate(u => u.SetProperty(x => x.Status, "failed").SetProperty(x => x.Output, HeartbeatExpired));
     }
 
     public bool Heartbeat(long machineId, long commandId, DateTimeOffset now)
@@ -166,7 +168,7 @@ public sealed class IceStore
     public bool Complete(long machineId, long commandId, CommandResult r, DateTimeOffset now)
     {
         using var db = Db();
-        var c = db.Commands.FirstOrDefault(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running"));
+        var c = db.Commands.FirstOrDefault(c => c.Id == commandId && c.MachineId == machineId && (c.Status == "delivered" || c.Status == "running" || (c.Status == "failed" && c.Output == HeartbeatExpired))); // a late result beats the timeout guess
         if (c is null) return false;
         c.Status = r.Ok ? "done" : "failed";
         c.Output = r.Output;
@@ -174,7 +176,7 @@ public sealed class IceStore
         return true;
     }
 
-    /// <summary>Fails a pending command. A turn already running on the PC is not stopped; its result is dropped (Complete then returns false).</summary>
+    /// <summary>Fails a pending command. The runner sees heartbeat 404 and stops the turn; a late result is dropped (Complete then returns false).</summary>
     public bool Dismiss(long machineId, string sessionId, long commandId)
     {
         using var db = Db();
