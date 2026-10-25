@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/Iceghost.Contracts/Iceghost.Contracts.csproj" />
+  <Project Path="src/Iceghost.Api/Iceghost.Api.csproj" />
+  <Project Path="src/Iceghost.Runner/Iceghost.Runner.csproj" />
+  <Project Path="tests/Iceghost.Tests/Iceghost.Tests.csproj" />
+</Solution>
