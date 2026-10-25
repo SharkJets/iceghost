@@ -28,6 +28,11 @@ public sealed class ServerClient(HttpClient http, string token)
         using var _ = await SendAsync(HttpMethod.Post, $"api/runner/commands/{id}/result", r, ct);
     }
 
+    public async Task HeartbeatAsync(long id, CancellationToken ct)
+    {
+        using var _ = await SendAsync(HttpMethod.Post, $"api/runner/commands/{id}/heartbeat", null, ct);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(HttpMethod m, string path, object? body, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(m, path);

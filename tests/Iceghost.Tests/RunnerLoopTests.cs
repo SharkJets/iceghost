@@ -30,14 +30,42 @@ public class RunnerLoopTests
         new(Runtime.Claude, id, "C:\\p", null, SessionState.Done, DateTimeOffset.UnixEpoch, []);
 
     private static (RunnerLoop Loop, Handler H, FakeTimeProvider T) Make(
-        Func<HttpRequestMessage, HttpResponseMessage> f, Func<Runtime, IRuntimeAdapter>? adapters = null)
+        Func<HttpRequestMessage, HttpResponseMessage> f, Func<Runtime, IRuntimeAdapter>? adapters = null,
+        Func<FakeTimeProvider, Func<DateTimeOffset, IReadOnlyList<SessionReport>>>? scan = null,
+        int maxParallel = 4, TimeSpan? idle = null)
     {
         var t = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
         var h = new Handler(f) { Time = t };
         var client = new ServerClient(new HttpClient(h) { BaseAddress = new Uri("http://x/") }, "tok");
-        return (new RunnerLoop(client, _ => [S("s1"), S("s2")],
-            adapters ?? (_ => new FakeRuntimeAdapter(c => new(true, "echo " + c.Text))), t), h, t);
+        return (new RunnerLoop(client, scan?.Invoke(t) ?? (_ => [S("s1"), S("s2")]),
+            adapters ?? (_ => new FakeRuntimeAdapter(c => new(true, "echo " + c.Text))), t, maxParallel, idle), h, t);
     }
+
+    // Blocks every command until Release() (or cancellation); tracks concurrency and start order.
+    private sealed class Gate : IRuntimeAdapter
+    {
+        private readonly TaskCompletionSource _open = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _active, _max;
+        public readonly List<long> Started = [];
+        public int Active => Volatile.Read(ref _active);
+        public int Max => Volatile.Read(ref _max);
+        public void Release() => _open.TrySetResult();
+        public async Task<CommandResult> SendAsync(RunnerCommand cmd, CancellationToken ct)
+        {
+            var now = Interlocked.Increment(ref _active);
+            int m;
+            while ((m = Volatile.Read(ref _max)) < now && Interlocked.CompareExchange(ref _max, now, m) != m) { }
+            lock (Started) Started.Add(cmd.Id);
+            try { await _open.Task.WaitAsync(ct); return new(true, "done " + cmd.Id); }
+            catch (OperationCanceledException) { return new(false, "cancelled"); }
+            finally { Interlocked.Decrement(ref _active); }
+        }
+    }
+
+    private static bool Posted(Handler h, long id, string what) => h.Snapshot().Any(c => c.Path.EndsWith($"/{id}/{what}"));
+
+    private static Func<FakeTimeProvider, Func<DateTimeOffset, IReadOnlyList<SessionReport>>> Sessions(params string[] ids) =>
+        _ => _ => ids.Select(S).ToList();
 
     // Advance fake time in small steps, letting the loop run, until cond holds.
     private static async Task Pump(FakeTimeProvider t, Func<bool> cond)
@@ -182,5 +210,116 @@ public class RunnerLoopTests
         await Pump(t, () => h.Snapshot().Any(c => c.Path.EndsWith("/7/result")));
         cts.Cancel(); await run;
         Assert.Equal("plan", seen!.Permission);
+    }
+
+    private static RunnerCommand C(long id, string session) => new(id, Runtime.Claude, session, "C:\\p", "hi");
+
+    [Fact]
+    public async Task Two_sessions_run_in_parallel()
+    {
+        var gate = new Gate();
+        var (loop, h, t) = Make(Server(C(1, "s1"), C(2, "s2")), _ => gate);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => gate.Active == 2);
+        gate.Release();
+        await Pump(t, () => Posted(h, 1, "result") && Posted(h, 2, "result"));
+        cts.Cancel(); await run;
+    }
+
+    [Fact]
+    public async Task Same_session_runs_in_order()
+    {
+        var gate = new Gate();
+        var (loop, h, t) = Make(Server(C(1, "s1"), C(2, "s1")), _ => gate);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => gate.Active == 1);
+        for (var i = 0; i < 20; i++) { await Task.Delay(5); t.Advance(TimeSpan.FromSeconds(1)); }
+        Assert.Equal(1, gate.Active);
+        gate.Release();
+        await Pump(t, () => Posted(h, 1, "result") && Posted(h, 2, "result"));
+        cts.Cancel(); await run;
+        Assert.Equal(1, gate.Max);
+        Assert.Equal(new long[] { 1, 2 }, gate.Started);
+    }
+
+    [Fact]
+    public async Task Max_parallel_respected()
+    {
+        var gate = new Gate();
+        var ids = Enumerable.Range(1, 5).Select(i => "s" + i).ToArray();
+        var (loop, h, t) = Make(Server(ids.Select((s, i) => C(i + 1, s)).ToArray()), _ => gate, Sessions(ids), maxParallel: 2);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => gate.Active == 2);
+        for (var i = 0; i < 20; i++) { await Task.Delay(5); t.Advance(TimeSpan.FromSeconds(1)); }
+        Assert.Equal(2, gate.Active);
+        gate.Release();
+        await Pump(t, () => Enumerable.Range(1, 5).All(i => Posted(h, i, "result")));
+        cts.Cancel(); await run;
+        Assert.Equal(2, gate.Max);
+    }
+
+    [Fact]
+    public async Task Heartbeat_sent_while_running()
+    {
+        var gate = new Gate();
+        var (loop, h, t) = Make(Server(C(5, "s1")), _ => gate);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Count(c => c.Path.EndsWith("/5/heartbeat")) >= 3);
+        Assert.False(Posted(h, 5, "result"));
+        gate.Release();
+        await Pump(t, () => Posted(h, 5, "result"));
+        cts.Cancel(); await run;
+        var calls = h.Snapshot();
+        Assert.Equal("POST", calls.First(c => c.Path.EndsWith("/5/heartbeat")).Method);
+        Assert.DoesNotContain(calls.SkipWhile(c => !c.Path.EndsWith("/5/result")), c => c.Path.EndsWith("/5/heartbeat"));
+    }
+
+    [Fact]
+    public async Task Scan_continues_during_command()
+    {
+        var gate = new Gate();
+        var (loop, h, t) = Make(Server(C(1, "s1")), _ => gate);
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => gate.Active == 1);
+        var before = h.Snapshot().Count(c => c.Path.EndsWith("report"));
+        await Pump(t, () => h.Snapshot().Count(c => c.Path.EndsWith("report")) >= before + 2);
+        Assert.False(Posted(h, 1, "result"));
+        gate.Release();
+        await Pump(t, () => Posted(h, 1, "result"));
+        cts.Cancel(); await run;
+    }
+
+    [Fact]
+    public async Task Idle_timeout_cancels()
+    {
+        var gate = new Gate(); // never released: only the idle timeout can end it
+        var (loop, h, t) = Make(Server(C(1, "s1")), _ => gate, idle: TimeSpan.FromMinutes(1));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => Posted(h, 1, "result"));
+        cts.Cancel(); await run;
+        var res = Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/1/result")).Body);
+        Assert.Equal(new CommandResult(false, "stopped: no activity for 1 min"), res);
+    }
+
+    [Fact]
+    public async Task Busy_turn_not_cancelled()
+    {
+        var gate = new Gate();
+        var (loop, h, t) = Make(Server(C(1, "s1")), _ => gate,
+            t => _ => [S("s1") with { LastActivity = t.GetUtcNow() }], idle: TimeSpan.FromMinutes(1));
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Count(c => c.Path.EndsWith("/1/heartbeat")) >= 12); // ~3 min of fake time
+        Assert.False(Posted(h, 1, "result"));
+        gate.Release();
+        await Pump(t, () => Posted(h, 1, "result"));
+        cts.Cancel(); await run;
+        Assert.Equal(new CommandResult(true, "done 1"), Body<CommandResult>(h.Snapshot().First(c => c.Path.EndsWith("/1/result")).Body));
     }
 }
