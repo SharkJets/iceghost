@@ -182,4 +182,31 @@ public sealed class RuntimeAdapterTests
         Assert.Equal("Pi answer ✓", OutputParsers.Pi(o));
         Assert.Throws<FormatException>(() => OutputParsers.Pi("""{"type":"agent_end","messages":[]}"""));
     }
+
+    [Fact]
+    public void Claude_adds_permission_mode() =>
+        Assert.Equal(["--print", "--output-format", "json", "--permission-mode", "auto", "--resume", "s1"],
+            new ClaudeAdapter([], T).BuildArguments("s1", [], "auto"));
+
+    [Fact]
+    public void Claude_unknown_permission_ignored() =>
+        Assert.Equal(["--print", "--output-format", "json", "--resume", "s1"],
+            new ClaudeAdapter([], T).BuildArguments("s1", [], "x & calc"));
+
+    [Fact]
+    public void Claude_extraargs_permission_wins()
+    {
+        string[] x = ["--permission-mode", "plan"];
+        Assert.Equal(["--print", "--output-format", "json", "--permission-mode", "plan", "--resume", "s1"],
+            new ClaudeAdapter(x, T).BuildArguments("s1", x, "auto"));
+    }
+
+    [Fact]
+    public void Codex_adds_sandbox_mode()
+    {
+        Assert.Equal(["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write", "t1", "-"],
+            new CodexAdapter([], T).BuildArguments("t1", [], "workspace-write"));
+        Assert.Equal(["exec", "resume", "--json", "--skip-git-repo-check", "t1", "-"],
+            new CodexAdapter([], T).BuildArguments("t1", [], "bogus"));
+    }
 }

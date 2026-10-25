@@ -59,7 +59,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
 
     private static string Quote(string a) => a.Length > 0 && a.IndexOfAny([' ', '\t']) < 0 ? a : $"\"{a}\"";
 
-    protected abstract IReadOnlyList<string> Args(string sessionId);
+    protected abstract IReadOnlyList<string> Args(string sessionId, string? permission);
     protected abstract string Parse(string stdout);
     protected IReadOnlyList<string> Extra => extraArgs;
 
@@ -110,7 +110,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
             StandardErrorEncoding = Utf8,
             StandardInputEncoding = Utf8,
         };
-        var args = Args(cmd.SessionId);
+        var args = Args(cmd.SessionId, cmd.Permission);
         if (OperatingSystem.IsWindows() && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
         {
             if (extraArgs.Any(HasShellMeta)) return new(false, "extra args contain shell metacharacters");
@@ -177,18 +177,26 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
 public sealed class ClaudeAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeout, string exe = "claude")
     : ProcessAdapter("claude", exe, extraArgs, timeout)
 {
-    public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
-        ["--print", "--output-format", "json", .. extra, "--resume", sessionId];
-    protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
+    static readonly string[] Modes = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"];
+    public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra, string? permission = null) =>
+        ["--print", "--output-format", "json", .. extra,
+         .. permission is not null && Array.IndexOf(Modes, permission) >= 0 && !extra.Contains("--permission-mode")
+             ? new[] { "--permission-mode", permission } : [],
+         "--resume", sessionId];
+    protected override IReadOnlyList<string> Args(string id, string? permission) => BuildArguments(id, Extra, permission);
     protected override string Parse(string o) => OutputParsers.Claude(o);
 }
 
 public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeout, string exe = "codex")
     : ProcessAdapter("codex", exe, extraArgs, timeout)
 {
-    public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
-        ["exec", "resume", "--json", "--skip-git-repo-check", .. extra, sessionId, "-"];
-    protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
+    static readonly string[] Modes = ["read-only", "workspace-write", "danger-full-access"];
+    // unquoted: not valid TOML so codex takes it as a raw string; avoids quotes on the cmd.exe path
+    public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra, string? permission = null) =>
+        ["exec", "resume", "--json", "--skip-git-repo-check", .. extra,
+         .. permission is not null && Array.IndexOf(Modes, permission) >= 0 ? new[] { "-c", "sandbox_mode=" + permission } : [],
+         sessionId, "-"];
+    protected override IReadOnlyList<string> Args(string id, string? permission) => BuildArguments(id, Extra, permission);
     protected override string Parse(string o) => OutputParsers.Codex(o);
 
     /// <summary>Codex reports failures as JSONL on stdout: last turn.failed, else last error event.</summary>
@@ -226,6 +234,6 @@ public sealed class PiAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeout,
 {
     public IReadOnlyList<string> BuildArguments(string sessionId, IReadOnlyList<string> extra) =>
         ["--mode", "json", "--print", "--no-extensions", .. extra, "--session-id", sessionId];
-    protected override IReadOnlyList<string> Args(string id) => BuildArguments(id, Extra);
+    protected override IReadOnlyList<string> Args(string id, string? permission) => BuildArguments(id, Extra);
     protected override string Parse(string o) => OutputParsers.Pi(o);
 }
