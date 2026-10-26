@@ -118,6 +118,35 @@ public class TranscriptReaderTests
         Assert.EndsWith("…", t);
     }
 
+    static string LastAssistantText(params string[] lines) =>
+        TranscriptReader.Read(Runtime.Claude, lines)!.Tail.Last(e => e.Role == "assistant").Text;
+
+    [Fact]
+    public void Latest_assistant_reply_kept_up_to_16000()
+    {
+        var t = LastAssistantText(CU("go", "2026-10-25T10:00:00Z"), CA(new string('x', 5000), "2026-10-25T10:01:00Z"));
+        Assert.Equal(5000, t.Length);
+        Assert.DoesNotContain("…", t);
+    }
+
+    [Fact]
+    public void Latest_reply_capped_at_16000()
+    {
+        var t = LastAssistantText(CU("go", "2026-10-25T10:00:00Z"), CA(new string('x', 20000), "2026-10-25T10:01:00Z"));
+        Assert.Equal(16000, t.Length);
+        Assert.EndsWith("…", t);
+    }
+
+    [Fact]
+    public void Older_entries_still_capped_at_1000()
+    {
+        var s = TranscriptReader.Read(Runtime.Claude, [CU("go", "2026-10-25T10:00:00Z"), CA(new string('x', 5000), "2026-10-25T10:01:00Z"),
+            CA("short", "2026-10-25T10:02:00Z")])!;
+        Assert.Equal(1000, s.Tail[1].Text.Length);
+        Assert.EndsWith("…", s.Tail[1].Text);
+        Assert.Equal("short", s.Tail[2].Text);
+    }
+
     [Fact]
     public void Claude_sidechain_skipped()
     {

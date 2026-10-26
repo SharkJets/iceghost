@@ -7,7 +7,7 @@ using Iceghost.Contracts;
 /// <summary>Parses transcript JSONL lines (claude, codex, pi) into a snapshot. Never throws on bad lines.</summary>
 public static class TranscriptReader
 {
-    const int TailMax = 10, TextMax = 1000, TitleMax = 80;
+    const int TailMax = 10, TextMax = 1000, LatestMax = 16000, TitleMax = 80;
 
     /// <summary>User-role text the harness injects, not the human speaking.</summary>
     static readonly string[] Synthetic = ["<command-name>", "<command-message>", "<local-command-stdout>",
@@ -30,7 +30,7 @@ public static class TranscriptReader
             if (string.IsNullOrWhiteSpace(text)) return;
             if (role == "assistant") LastAction = Action(text) ?? LastAction;
             if (role == "user") FirstUser ??= text.Length <= TitleMax ? text : text[..(TitleMax - 1)] + "…";
-            Tail.Add(new(role, Cut(text), at));
+            Tail.Add(new(role, text, at));
             if (Tail.Count > TailMax) Tail.RemoveAt(0);
         }
     }
@@ -58,7 +58,7 @@ public static class TranscriptReader
         }
         if (a.Id is null) return null;
         return new(runtime, a.Id, a.Cwd ?? "", a.Title ?? a.FirstUser,
-            a.Last, a.Ended, a.Pending.Count > 0, a.Tail)
+            a.Last, a.Ended, a.Pending.Count > 0, Capped(a.Tail))
         {
             LastAction = a.LastAction,
             Permission = runtime switch
@@ -236,5 +236,13 @@ public static class TranscriptReader
         _ => null,
     };
 
-    static string Cut(string t) => t.Length <= TextMax ? t : t[..(TextMax - 1)] + "…";
+    /// <summary>Newest assistant entry up to LatestMax, the rest up to TextMax.
+    /// Report bound: 50 sessions x (16 000 + 9 x 1 000) chars = ~1.25 M, under the server's 4 MB request limit.</summary>
+    static List<TranscriptEntry> Capped(List<TranscriptEntry> tail)
+    {
+        var latest = tail.FindLastIndex(e => e.Role == "assistant");
+        return [.. tail.Select((e, i) => e with { Text = Cut(e.Text, i == latest ? LatestMax : TextMax) })];
+    }
+
+    static string Cut(string t, int max) => t.Length <= max ? t : t[..(max - 1)] + "…";
 }
