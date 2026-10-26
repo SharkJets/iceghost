@@ -45,12 +45,12 @@ const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 t
         </div>
       </div>
     </header>
-    <main id="main" ref="mainEl" tabindex="-1" class="outline-none mx-auto max-w-7xl px-4 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:px-6">
+    <main id="main" ref="mainEl" tabindex="-1" class="outline-none mx-auto max-w-7xl px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6">
       <SessionView v-if="route.name === 'session'" :key="gen + hash" :machine-id="String(route.machineId)" :session-id="route.sessionId" @unauth="authed = false" />
       <Machines v-else-if="route.name === 'machines'" :key="gen" @unauth="authed = false" />
       <SessionList v-else :key="gen" @unauth="authed = false" />
     </main>
-    <footer class="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] text-sm text-muted">
+    <footer class="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)] text-xs sm:text-sm text-muted">
       <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 px-4 py-2 sm:px-6">
         <div><a class="inline-flex min-h-9 items-center hover:text-ink" href="https://github.com/SharkJets/iceghost">https://github.com/SharkJets/iceghost</a></div>
         <div><a class="inline-flex min-h-9 items-center hover:text-ink" href="https://sharkjets.com">SharkJets.com</a></div>
