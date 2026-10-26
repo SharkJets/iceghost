@@ -94,12 +94,12 @@ const reply = guard(async (r: SessionRow) => {
           </div>
           <blockquote v-if="r.lastAction" class="break-words border-l-2 border-needs pl-3 text-sm text-ink">{{ r.lastAction }}</blockquote>
           <form class="space-y-2" @submit.prevent="reply(r)">
-            <input v-model="drafts[key(r)]" type="text" :aria-label="`Reply to ${r.title ?? folder(r.cwd)}`" placeholder="Reply..." class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
+            <input v-model="drafts[key(r)]" type="text" :aria-label="`Reply to ${r.title ?? folder(r.cwd)}`" @input="sent[key(r)] = false" placeholder="Reply..." class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
             <div class="flex gap-2">
               <button type="submit" :disabled="sending[key(r)] || !(drafts[key(r)] ?? '').trim() || offline(r.machineId)" class="min-h-12 flex-1 rounded-lg bg-brand px-3 font-semibold text-white disabled:opacity-50">{{ sending[key(r)] ? 'Sending...' : 'Send reply' }}</button>
               <a :href="href(r)" class="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg border border-edge px-3 font-semibold text-ink hover:bg-raised">Open session</a>
             </div>
-            <p v-if="sent[key(r)]" role="status" aria-live="polite" class="text-sm text-ok">Sent</p>
+            <p role="status" aria-live="polite" class="text-sm text-ok">{{ sent[key(r)] ? 'Sent' : '' }}</p>
             <p v-if="errs[key(r)]" role="alert" class="text-sm text-bad">{{ errs[key(r)] }}</p>
           </form>
         </article>
