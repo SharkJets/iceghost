@@ -12,7 +12,7 @@ There is no hook or plugin in the agent CLIs. A small runner on each PC reads th
 
 | Sessions across your machines | One session: reply, follow progress |
 | --- | --- |
-| ![Session list grouped by state, with the last action of working and stalled sessions](docs/images/screenshot-sessions.png) | ![Session page with the message box on top, sent messages and the transcript newest first](docs/images/screenshot-session.png) |
+| ![Session list: sessions that need you as cards with an inline reply, then active sessions, with done collapsed](docs/images/screenshot-sessions.png) | ![Session page: message box pinned on top, a pending message with its status, then the transcript newest first](docs/images/screenshot-session.png) |
 
 <sub>Screenshots use sample data.</sub>
 
