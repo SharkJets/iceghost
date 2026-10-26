@@ -71,7 +71,7 @@ const dismiss = guard(async (id: number) => {
 </script>
 
 <template>
-  <div class="mb-4"><a href="#/" class="inline-flex items-center gap-1 text-sm text-sky-400 hover:text-sky-300"><Icon name="back" />Back to Sessions</a>
+  <div class="mb-4"><a href="#/" class="inline-flex min-h-9 items-center gap-1 text-sm text-sky-400 hover:text-sky-300 lg:min-h-0"><Icon name="back" />Back to Sessions</a>
     <p v-if="!d && loadErr" class="mt-2 text-red-400">Could not load session.</p>
   </div>
   <div v-if="d" class="space-y-4">
@@ -103,21 +103,21 @@ const dismiss = guard(async (id: number) => {
             </div>
           </div>
         </div>
-        <div class="sticky top-0 z-10 order-first rounded-t-xl border-b border-slate-700/60 bg-slate-900 p-3 lg:static lg:order-none lg:rounded-none lg:border-b-0 lg:border-t lg:bg-transparent">
+        <div class="sticky top-0 [@media(max-height:500px)]:static z-10 order-first rounded-t-xl border-b border-slate-700/60 bg-slate-900 p-3 lg:static lg:order-none lg:rounded-none lg:border-b-0 lg:border-t lg:bg-transparent">
           <p v-if="offline" class="mb-2 rounded bg-amber-900 p-2 text-sm text-amber-200">This PC is offline (last seen {{ seen ? ago(seen, now) : 'never' }}). Messages can't be delivered.</p>
           <div class="rounded-lg border border-slate-600 bg-slate-950/60 p-2">
             <textarea ref="ta" v-model="text" rows="3" placeholder="Type a message to the agent..." class="w-full resize-none bg-transparent text-sm outline-none"
               @keydown.enter.ctrl.prevent="send" @keydown.enter.meta.prevent="send" @paste="onPaste"></textarea>
             <div v-if="img" class="mb-2 flex items-end gap-3">
               <img :src="img.url" alt="Attached screenshot" class="max-h-24 rounded-md border border-slate-700" />
-              <button class="text-xs text-slate-400 hover:text-red-400" @click="clearImg">Remove</button>
+              <button class="inline-flex min-h-9 items-center text-xs text-slate-400 hover:text-red-400 lg:min-h-0" @click="clearImg">Remove</button>
             </div>
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-xs text-slate-500">Ctrl+Enter to send</span>
-              <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="hidden text-xs text-slate-500 sm:inline">Ctrl+Enter to send</span>
+              <div class="ml-auto flex shrink-0 items-center gap-2">
                 <input ref="pick" type="file" accept="image/*" class="hidden" @change="onPick" />
-                <button class="flex items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100" title="Attach or paste a screenshot" @click="pick?.click()"><Icon name="image" />Screenshot</button>
-                <button class="flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-sm font-medium hover:bg-sky-500 disabled:opacity-50" :disabled="sending || offline" @click="send"><Icon name="send" />Send</button>
+                <button class="flex shrink-0 items-center gap-2 rounded-md border border-slate-600 px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100" title="Attach or paste a screenshot" aria-label="Attach or paste a screenshot" @click="pick?.click()"><Icon name="image" /><span class="hidden min-[360px]:inline">Screenshot</span></button>
+                <button class="flex shrink-0 items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-sm font-medium hover:bg-sky-500 disabled:opacity-50" :disabled="sending || offline" @click="send"><Icon name="send" />Send</button>
               </div>
             </div>
           </div>
@@ -132,7 +132,7 @@ const dismiss = guard(async (id: number) => {
           <div v-for="c in cmds" :key="c.id" class="border-t border-slate-700/50 py-2 text-sm first:border-t-0">
             <div class="flex items-start justify-between gap-2">
               <span class="min-w-0 break-words">{{ c.text.length > 80 ? c.text.slice(0, 80) + '...' : c.text }}</span>
-              <button v-if="pending(c)" class="shrink-0 rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-300 hover:text-red-400" @click="dismiss(c.id)">Dismiss</button>
+              <button v-if="pending(c)" class="inline-flex min-h-9 shrink-0 items-center rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-300 hover:text-red-400 lg:min-h-0" @click="dismiss(c.id)">Dismiss</button>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
               <span class="flex items-center gap-1" :class="tones[label(c).tone]">
@@ -151,7 +151,7 @@ const dismiss = guard(async (id: number) => {
             <dt class="text-slate-500">Agent</dt><dd>{{ agent(d.session.runtime).name }}</dd>
             <dt class="text-slate-500">Session ID</dt>
             <dd class="flex items-center gap-2"><span class="truncate font-mono text-xs" :title="d.session.sessionId">{{ d.session.sessionId }}</span>
-              <button class="shrink-0 text-slate-400 hover:text-slate-200" title="Copy session id" @click="copy(d.session.sessionId)"><Icon name="copy" /></button></dd>
+              <button class="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-200 lg:min-h-0 lg:min-w-0" title="Copy session id" aria-label="Copy session ID" @click="copy(d.session.sessionId)"><Icon name="copy" /></button></dd>
             <dt class="text-slate-500">Status</dt><dd :class="stateOf(d.session.state).text">{{ stateOf(d.session.state).label }}</dd>
           </dl>
         </section>

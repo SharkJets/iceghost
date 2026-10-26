@@ -68,7 +68,7 @@ const copy = () => navigator.clipboard?.writeText(cmd())
         <span class="text-slate-300">{{ shortOs(m.os) }}</span>
         <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" :class="isOffline(m.lastSeen, now) ? 'bg-red-500' : 'bg-emerald-400'"></span>{{ isOffline(m.lastSeen, now) ? 'Offline' : 'Online' }}</span>
         <span :class="isOffline(m.lastSeen, now) ? 'text-red-400' : 'text-slate-300'">{{ m.lastSeen ? ago(m.lastSeen, now) : 'never seen' }}</span>
-        <span class="text-right"><button class="rounded border border-slate-600 px-2 py-0.5 text-xs text-red-400 hover:bg-slate-800" @click="remove(m)">Delete</button></span>
+        <span class="text-right"><button class="inline-flex min-h-9 items-center rounded border border-slate-600 px-2 py-0.5 text-xs text-red-400 hover:bg-slate-800 md:min-h-0" @click="remove(m)">Delete</button></span>
       </div>
     </div>
   </div>
