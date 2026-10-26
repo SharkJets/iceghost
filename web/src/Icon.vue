@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Small generic stroke glyphs (24x24). Each entry is a list of path `d` strings.
 const paths: Record<string, string[]> = {
-  snow: ['M12 2v20', 'M4.9 7l14.2 10', 'M19.1 7L4.9 17', 'M9.5 3.5L12 6l2.5-2.5', 'M9.5 20.5L12 18l2.5 2.5'],
   monitor: ['M3 4h18v12H3z', 'M8 20h8', 'M12 16v4'],
   folder: ['M3 6a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1z'],
   chat: ['M4 5h16v11H9l-5 4z'],

@@ -43,32 +43,32 @@ const copy = () => navigator.clipboard?.writeText(cmd())
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 class="text-3xl font-semibold">Machines</h1>
-        <p class="mt-1 max-w-xl text-sm text-slate-400">Computers enrolled with IceGhost. Each machine runs a small runner that reads agent sessions and reports to this server.</p>
+        <p class="mt-1 max-w-xl text-sm text-muted">Computers enrolled with IceGhost. Each machine runs a small runner that reads agent sessions and reports to this server.</p>
       </div>
-      <button class="flex items-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium hover:bg-sky-500" @click="adding = !adding"><Icon name="plus" />Enroll Machine</button>
+      <button class="flex items-center gap-2 rounded-md bg-brand text-white px-4 min-h-11 py-2 text-sm font-medium hover:brightness-110" @click="adding = !adding"><Icon name="plus" />Enroll Machine</button>
     </div>
     <form v-if="adding" class="flex gap-2" @submit.prevent="enroll">
-      <input v-model="name" placeholder="New machine name" class="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-950/60 p-2" />
-      <button class="rounded-md bg-sky-600 px-4 hover:bg-sky-500">Enroll</button>
+      <input v-model="name" placeholder="New machine name" class="min-w-0 flex-1 rounded-md border border-edge bg-night min-h-11 px-2 placeholder:text-edge" />
+      <button class="min-h-11 rounded-md bg-brand text-white px-4 hover:brightness-110">Enroll</button>
     </form>
-    <p v-if="err" class="text-sm text-red-400">{{ err }}</p>
-    <div v-if="token" class="rounded-xl border border-slate-700/60 bg-slate-900/70 p-3 text-sm">
-      <p class="mb-1 text-amber-300">Shown once. Copy it now.</p>
+    <p v-if="err" class="text-sm text-bad">{{ err }}</p>
+    <div v-if="token" class="rounded-xl border border-line bg-panel p-3 text-sm">
+      <p class="mb-1 text-needs">Shown once. Copy it now.</p>
       <code class="block break-all font-mono text-xs">{{ cmd() }}</code>
-      <button class="mt-2 rounded bg-slate-700 px-3 py-1" @click="copy">Copy</button>
+      <button class="mt-2 min-h-11 rounded bg-raised px-3" @click="copy">Copy</button>
     </div>
-    <div class="overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/70 text-sm">
-      <div class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_5rem] gap-3 border-b border-slate-700/60 px-4 py-2 text-xs text-slate-400 md:grid">
+    <div class="overflow-hidden rounded-xl border border-line bg-panel text-sm">
+      <div class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_5rem] gap-3 border-b border-line px-4 py-2 text-xs text-muted md:grid">
         <span>Hostname</span><span>OS</span><span>Status</span><span>Last Seen</span><span class="text-right">Actions</span>
       </div>
-      <p v-if="!rows.length" class="p-4 text-slate-500">No machines enrolled.</p>
-      <div v-for="m in rows" :key="m.id" class="grid grid-cols-2 items-center gap-x-3 gap-y-1 border-t border-slate-700/50 px-4 py-3 first:border-t-0 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_5rem]">
-        <div class="col-span-2 min-w-0 md:col-span-1"><div class="flex items-center gap-2 font-medium"><Icon name="monitor" class="text-slate-400" /><span class="truncate">{{ m.name }}</span></div>
-          <div class="truncate text-xs text-slate-500">{{ m.hostname ?? '-' }}</div></div>
-        <span class="text-slate-300">{{ shortOs(m.os) }}</span>
-        <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" :class="isOffline(m.lastSeen, now) ? 'bg-red-500' : 'bg-emerald-400'"></span>{{ isOffline(m.lastSeen, now) ? 'Offline' : 'Online' }}</span>
-        <span :class="isOffline(m.lastSeen, now) ? 'text-red-400' : 'text-slate-300'">{{ m.lastSeen ? ago(m.lastSeen, now) : 'never seen' }}</span>
-        <span class="text-right"><button class="inline-flex min-h-9 items-center rounded border border-slate-600 px-2 py-0.5 text-xs text-red-400 hover:bg-slate-800 md:min-h-0" @click="remove(m)">Delete</button></span>
+      <p v-if="!rows.length" class="p-4 text-muted">No machines enrolled.</p>
+      <div v-for="m in rows" :key="m.id" class="grid grid-cols-2 items-center gap-x-3 gap-y-1 border-t border-line px-4 py-3 first:border-t-0 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_5rem]">
+        <div class="col-span-2 min-w-0 md:col-span-1"><div class="flex items-center gap-2 font-medium"><Icon name="monitor" class="text-muted" /><span class="truncate">{{ m.name }}</span></div>
+          <div class="truncate text-xs text-muted">{{ m.hostname ?? '-' }}</div></div>
+        <span class="text-ink">{{ shortOs(m.os) }}</span>
+        <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" :class="isOffline(m.lastSeen, now) ? 'bg-bad' : 'bg-ok'"></span><span :class="isOffline(m.lastSeen, now) ? 'text-bad' : 'text-ok'">{{ isOffline(m.lastSeen, now) ? 'Offline' : 'Online' }}</span></span>
+        <span :class="isOffline(m.lastSeen, now) ? 'text-bad' : 'text-ink'">{{ m.lastSeen ? ago(m.lastSeen, now) : 'never seen' }}</span>
+        <span class="text-right"><button :aria-label="`Delete machine ${m.name}`" class="inline-flex min-h-11 items-center rounded border border-edge px-2 py-0.5 text-xs text-bad hover:bg-raised" @click="remove(m)">Delete</button></span>
       </div>
     </div>
   </div>

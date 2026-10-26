@@ -1,6 +1,31 @@
 @import "tailwindcss";
 
+@theme {
+  --color-night: #001233;
+  --color-panel: #001845;
+  --color-card: #002855;
+  --color-raised: #023E7D;
+  --color-bubble: #0353A4;
+  --color-brand: #0466C8;
+  --color-line: #33415C;
+  --color-edge: #7D8597;
+  --color-muted: #979DAC;
+  --color-link: #7FB2E5;
+  --color-ink: #E6EDF7;
+  --color-needs: #FFB766;
+  --color-stall: #FFD27A;
+  --color-ok: #4BE29A;
+  --color-bad: #FF9B9B;
+}
+
 body {
   min-height: 100vh;
-  background: radial-gradient(ellipse at top, #16294a 0%, #0b1426 55%, #070d1a 100%) fixed;
+  background: var(--color-night);
+  color: var(--color-ink);
+  color-scheme: dark;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
 }
