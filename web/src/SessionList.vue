@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api, Unauthorized, type SessionRow, type MachineRow } from './api'
-import { ago, agent, folder, matches, splitAction, stateOf, summary } from './format'
+import { ago, agent, matches, sessionLabel, splitAction, stateOf, summary } from './format'
 import { guard } from './route'
 import { usePoll, ticker } from './useNow'
 import Icon from './Icon.vue'
@@ -88,13 +88,13 @@ const reply = guard(async (r: SessionRow) => {
       <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-4">
         <article v-for="r in needs" :key="key(r)" class="min-w-0 space-y-3 rounded-xl border border-needs/60 bg-card p-4">
           <div>
-            <h3 class="break-words font-semibold">{{folder(r.cwd)}} · {{ r.title ?? folder(r.cwd) }}</h3>
+            <h3 class="break-words font-semibold">{{ sessionLabel(r) }}</h3>
             <p class="text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }} · {{ ago(r.lastActivity, now) }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-raised px-1 text-xs">offline</span></p>
             <p class="mt-1 break-all font-mono text-xs text-muted">{{ r.cwd }}</p>
           </div>
           <blockquote v-if="r.lastAction" class="break-words border-l-2 border-needs pl-3 text-sm text-ink">{{ r.lastAction }}</blockquote>
           <form class="space-y-2" @submit.prevent="reply(r)">
-            <input v-model="drafts[key(r)]" type="text" :aria-label="`Reply to ${r.title ?? folder(r.cwd)}`" @input="sent[key(r)] = false" placeholder="Reply..." class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
+            <input v-model="drafts[key(r)]" type="text" :aria-label="`Reply to ${sessionLabel(r)}`" @input="sent[key(r)] = false" placeholder="Reply..." class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
             <div class="flex gap-2">
               <button type="submit" :disabled="sending[key(r)] || !(drafts[key(r)] ?? '').trim() || offline(r.machineId)" class="min-h-12 flex-1 rounded-lg bg-brand px-3 font-semibold text-white disabled:opacity-50">{{ sending[key(r)] ? 'Sending...' : 'Send reply' }}</button>
               <a :href="href(r)" class="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg border border-edge px-3 font-semibold text-ink hover:bg-raised">Open session</a>
@@ -118,7 +118,7 @@ const reply = guard(async (r: SessionRow) => {
             <span class="block min-w-0">
               <span class="flex items-center gap-2 font-semibold">
                 <span v-if="r.pendingCommands" class="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-link border-t-transparent" aria-hidden="true"></span>
-                <span class="break-words">{{ r.title ?? folder(r.cwd) }}</span>
+                <span class="break-words">{{ sessionLabel(r) }}</span>
               </span>
               <span class="block break-words text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }} · {{ r.cwd }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-raised px-1 text-xs">offline</span></span>
             </span>
@@ -141,7 +141,7 @@ const reply = guard(async (r: SessionRow) => {
       <ul v-show="showDone" id="done-list" class="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
         <li v-for="r in done" :key="key(r)">
           <a :href="href(r)" class="block min-h-12 px-4 py-2 hover:bg-raised focus-visible:bg-raised">
-            <span class="flex items-baseline justify-between gap-2"><span class="break-words font-semibold">{{ r.title ?? folder(r.cwd) }}</span><span class="shrink-0 text-sm text-muted">{{ ago(r.lastActivity, now) }}</span></span>
+            <span class="flex items-baseline justify-between gap-2"><span class="break-words font-semibold">{{ sessionLabel(r) }}</span><span class="shrink-0 text-sm text-muted">{{ ago(r.lastActivity, now) }}</span></span>
             <span class="block text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }}</span>
             <span v-if="r.lastAction" class="block break-all font-mono text-xs text-muted">{{ r.lastAction }}</span>
           </a>

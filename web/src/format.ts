@@ -67,3 +67,5 @@ export const summary = (rows: { state: string }[]) => {
   for (const r of rows) c[r.state] = (c[r.state] ?? 0) + 1
   return c
 }
+
+export const sessionLabel = (r: { title?: string | null; cwd: string }) => r.title ? `${folder(r.cwd)} · ${r.title}` : folder(r.cwd)

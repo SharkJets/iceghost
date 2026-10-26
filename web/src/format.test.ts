@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, agent, commandLabel, isOffline, matches, shortOs, summary, splitAction } from './format'
+import { ago, agent, commandLabel, isOffline, matches, sessionLabel, shortOs, summary, splitAction } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -67,4 +67,10 @@ it('matches and summary', () => {
   expect(matches(r, 'nope')).toBe(false)
   expect(matches({ ...r, title: null }, 'fix')).toBe(false)
   expect(summary([r, r, { state: 'done' }])).toEqual({ needsInput: 0, stalled: 0, working: 2, done: 1 })
+})
+
+describe('sessionLabel', () => {
+  it('prefixes folder to title', () => expect(sessionLabel({ title: 'Fix', cwd: '/a/proj' })).toBe('proj · Fix'))
+  it('null title', () => expect(sessionLabel({ title: null, cwd: '/a/proj' })).toBe('proj'))
+  it('empty title', () => expect(sessionLabel({ title: '', cwd: '/a/proj/' })).toBe('proj'))
 })
