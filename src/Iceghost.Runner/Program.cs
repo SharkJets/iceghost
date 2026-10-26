@@ -12,12 +12,13 @@ public static class Program
     {
         if (args.Length == 0 || args[0] != "run")
         {
-            Console.Error.WriteLine("usage: iceghost-runner run [--server URL --token TOKEN] [--state-dir PATH]");
+            Console.Error.WriteLine("usage: iceghost-runner run [--server URL --token TOKEN] [--state-dir PATH] [--headless]");
             return 2;
         }
 
         var flags = ParseFlags(args.Skip(1));
         var dir = flags.GetValueOrDefault("--state-dir") ?? RunnerConfig.StateDir();
+        if (flags.ContainsKey("--headless")) Headless.Enable(dir);
         var server = flags.GetValueOrDefault("--server");
         var token = flags.GetValueOrDefault("--token");
 
@@ -64,11 +65,15 @@ public static class Program
             TimeProvider.System, Math.Max(1, cfg.MaxParallel), TimeSpan.FromMinutes(cfg.TimeoutMinutes), attach);
 
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
+        try
         {
-            e.Cancel = true;
-            cts.Cancel();
-        };
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                cts.Cancel();
+            };
+        }
+        catch (Exception) when (flags.ContainsKey("--headless")) { } // no console to hook once detached
 
         try
         {
@@ -86,13 +91,14 @@ public static class Program
         }
     }
 
-    // ponytail: flag pairs only, no CLI library; add one when subcommands grow
-    private static Dictionary<string, string> ParseFlags(IEnumerable<string> args)
+    // ponytail: flag pairs plus --headless, no CLI library; add one when subcommands grow
+    public static Dictionary<string, string> ParseFlags(IEnumerable<string> args)
     {
         var list = args.ToList();
         var flags = new Dictionary<string, string>();
-        for (var i = 0; i + 1 < list.Count; i += 2)
-            flags[list[i]] = list[i + 1];
+        for (var i = 0; i < list.Count; i++)
+            if (list[i] == "--headless") flags[list[i]] = "true";
+            else if (i + 1 < list.Count) flags[list[i]] = list[++i];
         return flags;
     }
 }

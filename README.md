@@ -179,8 +179,10 @@ Services start with a minimal `PATH`. After `PATH`, the runner also looks in `~/
 **Windows** (Task Scheduler, at logon):
 
 ```
-schtasks /create /tn iceghost-runner /sc onlogon /tr "\"%LOCALAPPDATA%\Programs\IceghostRunner\iceghost-runner.exe\" run"
+schtasks /create /tn iceghost-runner /sc onlogon /tr "\"%LOCALAPPDATA%\Programs\IceghostRunner\iceghost-runner.exe\" run --headless"
 ```
+
+`--headless` closes the console window and logs to `%LOCALAPPDATA%\Iceghost Runner\runner.log`. Windows may flash the window for a moment at logon before it closes. For no window at all, either create the task with "Run whether user is logged on or not" (`schtasks ... /ru %USERNAME% /rp *` prompts for your password), or start it through `conhost.exe --headless "...\iceghost-runner.exe" run --headless`.
 
 **Linux** (systemd user unit). Save as `~/.config/systemd/user/iceghost-runner.service`:
 
@@ -189,7 +191,7 @@ schtasks /create /tn iceghost-runner /sc onlogon /tr "\"%LOCALAPPDATA%\Programs\
 Description=Iceghost runner
 
 [Service]
-ExecStart=%h/.local/bin/iceghost-runner run
+ExecStart=%h/.local/bin/iceghost-runner run --headless
 Restart=always
 
 [Install]
@@ -216,6 +218,7 @@ loginctl enable-linger $USER
   <array>
     <string>/Users/YOUR_USER/.local/bin/iceghost-runner</string>
     <string>run</string>
+    <string>--headless</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -230,6 +233,8 @@ Then load it:
 ```
 launchctl load ~/Library/LaunchAgents/com.sharkjets.iceghost-runner.plist
 ```
+
+`--headless` is optional on Linux and macOS (launchd and systemd have no window), but it writes a log file: `~/.local/state/iceghost-runner/runner.log` or `~/Library/Application Support/Iceghost Runner/runner.log`. The log rotates to `runner.log.1` past 10 MiB.
 
 ## Desktop app
 
@@ -286,6 +291,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET te
 ## Troubleshooting
 
 - **`'pi' not found on PATH`** (or `claude`, `codex`): the runner's own environment, not your shell, must find the CLI. The runner also checks the usual install folders (see Run at startup); otherwise set `"exe"` in `config.json`, or `PATH` in the unit or plist. On Windows, npm `.cmd` shims are found through `PATHEXT`.
+- **Where are the runner's logs?** With `--headless`, in `runner.log` in the state dir (see Enroll a machine). Without it, on the console.
 - **`token rejected: re-enroll this machine`** (exit 3): the machine was deleted or the token is wrong. Add the machine again in the UI and run `iceghost-runner run --server ... --token ...`.
 - **`config.json is invalid`** (exit 2): fix or delete the file named in the message. **`run with --server and --token first`** (exit 2): there is no saved config yet.
 - **Session not listed:** check the roots the runner printed at startup (`(missing)` means the directory does not exist; see Where sessions are found). Only the 50 newest transcripts touched in the last 14 days appear.
