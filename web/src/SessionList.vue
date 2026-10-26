@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api, Unauthorized, type SessionRow, type MachineRow } from './api'
-import { ago, agent, folder, shortOs, splitAction, stateOf } from './format'
+import { ago, agent, folder, matches, splitAction, stateOf, summary } from './format'
+import { guard } from './route'
 import { usePoll, ticker } from './useNow'
 import Icon from './Icon.vue'
 
@@ -9,7 +10,6 @@ const emit = defineEmits<{ unauth: [] }>()
 const rows = ref<SessionRow[]>([])
 const now = ticker()
 const seen = ref<Record<number, string | null>>({})
-const osOf = ref<Record<number, string | null>>({})
 const offline = (id: number) => id in seen.value && (!seen.value[id] || now.value.getTime() - new Date(seen.value[id]!).getTime() > 120000)
 usePoll(async () => {
   try { rows.value = await api<SessionRow[]>('/api/sessions') }
@@ -17,74 +17,136 @@ usePoll(async () => {
   try {
     const ms = await api<MachineRow[]>('/api/machines')
     seen.value = Object.fromEntries(ms.map(m => [m.id, m.lastSeen]))
-    osOf.value = Object.fromEntries(ms.map(m => [m.id, m.os]))
   }
   catch (e) { if (e instanceof Unauthorized) emit('unauth') }
 }, 5000)
 
-const order = ['needsInput', 'stalled', 'working', 'done']
 const stored = localStorage.getItem('ig.machine')
 const sel = ref<number | null>(stored ? Number(stored) : null)
 watch(sel, v => v === null ? localStorage.removeItem('ig.machine') : localStorage.setItem('ig.machine', String(v)))
 const machines = computed(() => [...new Map(rows.value.map(r => [r.machineId, r.machine])).entries()].sort((a, b) => a[1].localeCompare(b[1])))
+const runtimes = computed(() => [...new Set(rows.value.map(r => r.runtime))].sort())
 const eff = computed(() => machines.value.some(m => m[0] === sel.value) ? sel.value : null)
-const groups = computed(() => {
-  const rs = eff.value === null ? rows.value : rows.value.filter(r => r.machineId === eff.value)
-  return order.map(s => ({ s, items: rs.filter(r => r.state === s) })).filter(g => g.items.length)
-})
+const q = ref('')
+const rt = ref('')
+const filtered = computed(() => rows.value.filter(r => (eff.value === null || r.machineId === eff.value) && (!rt.value || r.runtime === rt.value) && matches(r, q.value)))
+const needs = computed(() => filtered.value.filter(r => r.state === 'needsInput'))
+const active = computed(() => filtered.value.filter(r => r.state !== 'needsInput' && r.state !== 'done').sort((a, b) => (a.state === 'stalled' ? 0 : 1) - (b.state === 'stalled' ? 0 : 1)))
+const done = computed(() => filtered.value.filter(r => r.state === 'done'))
+const counts = computed(() => summary(rows.value))
 const pick = (e: Event) => { const v = (e.target as HTMLSelectElement).value; sel.value = v ? Number(v) : null }
+const key = (r: SessionRow) => `${r.machineId}/${encodeURIComponent(r.sessionId)}`
+const href = (r: SessionRow) => `#/s/${key(r)}`
+const showDone = ref(false)
+
+const drafts = ref<Record<string, string>>({})
+const sending = ref<Record<string, boolean>>({})
+const errs = ref<Record<string, string>>({})
+const sent = ref<Record<string, boolean>>({})
+const reply = guard(async (r: SessionRow) => {
+  const k = key(r), t = (drafts.value[k] ?? '').trim()
+  if (!t) return
+  errs.value[k] = ''; sent.value[k] = false; sending.value[k] = true
+  try { await api(`/api/sessions/${k}/messages`, 'POST', { text: t }); drafts.value[k] = ''; sent.value[k] = true }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else errs.value[k] = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Send failed (text up to 20000 chars)' }
+  finally { sending.value[k] = false }
+})
 </script>
 <template>
-  <div class="space-y-5">
-    <div class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 class="text-3xl font-semibold">Sessions</h1>
-        <p class="mt-1 text-sm text-slate-400">Live view of coding agent sessions across your machines. Talk to them from anywhere.</p>
-      </div>
-      <div class="flex flex-wrap items-center gap-4 text-xs text-slate-400">
-        <select v-if="machines.length > 1" :value="eff ?? ''" class="rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200" @change="pick">
-          <option value="">All Machines</option>
+  <div class="space-y-6">
+    <header>
+      <h1 class="text-3xl font-semibold">Sessions</h1>
+      <p role="status" class="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted">
+        <span v-if="counts.needsInput"><b class="font-bold text-needs">{{ counts.needsInput }} need you</b></span>
+        <template v-if="counts.stalled"><span v-if="counts.needsInput" aria-hidden="true">·</span><span>{{ counts.stalled }} stalled</span></template>
+        <template v-if="counts.working"><span v-if="counts.needsInput || counts.stalled" aria-hidden="true">·</span><span>{{ counts.working }} working</span></template>
+        <span v-if="counts.needsInput || counts.stalled || counts.working" aria-hidden="true">·</span>
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-ok" aria-hidden="true"></span>Live</span>
+      </p>
+    </header>
+    <div role="search" class="flex flex-wrap gap-3">
+      <label class="min-w-0 flex-1 basis-full sm:basis-60"><span class="sr-only">Search sessions</span>
+        <input v-model="q" type="search" placeholder="Search sessions" class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
+      </label>
+      <label v-if="machines.length > 1" class="min-w-0 flex-1 sm:flex-none"><span class="sr-only">Machine</span>
+        <select :value="eff ?? ''" class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink" @change="pick">
+          <option value="">All machines</option>
           <option v-for="[id, name] in machines" :key="id" :value="id">{{ name }}{{ offline(id) ? ' (offline)' : '' }}</option>
         </select>
-        <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Auto-refreshes every 5 seconds</span>
-      </div>
+      </label>
+      <label v-if="runtimes.length > 1" class="min-w-0 flex-1 sm:flex-none"><span class="sr-only">Agent</span>
+        <select v-model="rt" class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink">
+          <option value="">All agents</option>
+          <option v-for="r in runtimes" :key="r" :value="r">{{ agent(r).name }}</option>
+        </select>
+      </label>
     </div>
-    <p v-if="!rows.length" class="text-slate-400">No sessions yet.</p>
-    <section v-for="g in groups" :key="g.s" class="overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/70">
-      <h2 class="flex items-center gap-3 border-l-4 px-4 py-3" :class="[stateOf(g.s).head, stateOf(g.s).border]">
-        <span class="flex h-6 w-6 items-center justify-center rounded-full bg-current/20" :class="stateOf(g.s).text"><Icon :name="stateOf(g.s).icon" class="h-4 w-4" /></span>
-        <span class="text-lg font-semibold" :class="stateOf(g.s).text">{{ stateOf(g.s).label }}</span>
-        <span class="rounded-full bg-slate-700/70 px-2 text-xs text-slate-200">{{ g.items.length }}</span>
-        <span class="ml-auto hidden text-xs font-normal text-slate-400 sm:block">{{ stateOf(g.s).hint }}</span>
+    <p v-if="!filtered.length" class="text-muted">{{ rows.length ? 'No sessions match.' : 'No sessions yet.' }}</p>
+
+    <section v-if="needs.length" aria-labelledby="h-needs" class="space-y-3">
+      <h2 id="h-needs" class="text-lg font-semibold text-needs">Needs you ({{ needs.length }})</h2>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-4">
+        <article v-for="r in needs" :key="key(r)" class="min-w-0 space-y-3 rounded-xl border border-needs/60 bg-card p-4">
+          <div>
+            <h3 class="break-words font-semibold">{{ r.title ?? folder(r.cwd) }}</h3>
+            <p class="text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }} · {{ ago(r.lastActivity, now) }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-raised px-1 text-xs">offline</span></p>
+            <p class="mt-1 break-all font-mono text-xs text-muted">{{ r.cwd }}</p>
+          </div>
+          <blockquote v-if="r.lastAction" class="break-words border-l-2 border-needs pl-3 text-sm text-ink">{{ r.lastAction }}</blockquote>
+          <form class="space-y-2" @submit.prevent="reply(r)">
+            <input v-model="drafts[key(r)]" type="text" :aria-label="`Reply to ${r.title ?? folder(r.cwd)}`" placeholder="Reply..." class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />
+            <div class="flex gap-2">
+              <button type="submit" :disabled="sending[key(r)] || !(drafts[key(r)] ?? '').trim() || offline(r.machineId)" class="min-h-12 flex-1 rounded-lg bg-brand px-3 font-semibold text-white disabled:opacity-50">{{ sending[key(r)] ? 'Sending...' : 'Send reply' }}</button>
+              <a :href="href(r)" class="inline-flex min-h-12 flex-1 items-center justify-center rounded-lg border border-edge px-3 font-semibold text-ink hover:bg-raised">Open session</a>
+            </div>
+            <p v-if="sent[key(r)]" role="status" aria-live="polite" class="text-sm text-ok">Sent</p>
+            <p v-if="errs[key(r)]" role="alert" class="text-sm text-bad">{{ errs[key(r)] }}</p>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="active.length" aria-labelledby="h-active" class="space-y-3">
+      <h2 id="h-active" class="text-lg font-semibold">Active ({{ active.length }})</h2>
+      <ul class="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+        <li v-for="r in active" :key="key(r)">
+          <a :href="href(r)" class="block min-h-12 px-4 py-3 hover:bg-raised focus-visible:bg-raised md:grid md:grid-cols-[8rem_minmax(0,2fr)_minmax(0,2fr)_6rem] md:items-center md:gap-4">
+            <span class="flex items-center justify-between gap-2 md:justify-start">
+              <span class="flex items-center gap-2 font-medium" :class="stateOf(r.state).text"><span class="inline-block shrink-0" :class="stateOf(r.state).dot" aria-hidden="true"></span>{{ stateOf(r.state).label }}</span>
+              <span class="text-sm text-muted md:hidden">{{ ago(r.lastActivity, now) }}</span>
+            </span>
+            <span class="block min-w-0">
+              <span class="flex items-center gap-2 font-semibold">
+                <span v-if="r.pendingCommands" class="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-link border-t-transparent" aria-hidden="true"></span>
+                <span class="break-words">{{ r.title ?? folder(r.cwd) }}</span>
+              </span>
+              <span class="block break-words text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }} · {{ r.cwd }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-raised px-1 text-xs">offline</span></span>
+            </span>
+            <span class="block min-w-0 text-sm">
+              <span v-if="r.lastAction" class="text-muted"><template v-if="splitAction(r.lastAction).verb">{{ splitAction(r.lastAction).verb }} </template><code class="break-all font-mono text-ink">{{ splitAction(r.lastAction).arg }}</code></span>
+              <span v-if="r.pendingCommands" class="ml-2 text-link">{{ r.pendingCommands }} waiting</span>
+            </span>
+            <span class="hidden text-right text-sm text-muted md:block">{{ ago(r.lastActivity, now) }}</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="done.length" class="space-y-3">
+      <h2 class="text-lg font-semibold">
+        <button type="button" :aria-expanded="showDone" aria-controls="done-list" class="flex min-h-12 items-center gap-2" @click="showDone = !showDone">
+          <span class="inline-block transition-transform" :class="showDone ? 'rotate-90' : ''" aria-hidden="true"><Icon name="chevron" /></span>Done ({{ done.length }})
+        </button>
       </h2>
-      <a v-for="r in g.items" :key="`${r.machineId}/${r.sessionId}`" :href="`#/s/${r.machineId}/${encodeURIComponent(r.sessionId)}`"
-        class="grid grid-cols-[1.5rem_minmax(0,1fr)_1rem] items-center gap-x-3 gap-y-2 border-l-4 border-t border-t-slate-700/50 px-4 py-3 hover:bg-slate-800/60 md:grid-cols-[1.5rem_minmax(0,2fr)_5.5rem_minmax(0,1.2fr)_minmax(0,1.2fr)_6.5rem_minmax(0,2fr)_1rem]"
-        :class="stateOf(g.s).border">
-        <span class="text-slate-400"><Icon name="chat" class="h-5 w-5" /></span>
-        <span class="min-w-0">
-          <span class="flex items-center gap-2 font-semibold">
-            <span v-if="r.pendingCommands" class="inline-block h-2 w-2 shrink-0 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></span>
-            <span class="truncate">{{ r.title ?? folder(r.cwd) }}</span>
-          </span>
-          <span class="flex items-center gap-1 text-xs text-slate-500"><Icon name="folder" class="h-3 w-3" /><span class="truncate">{{ r.cwd }}</span></span>
-        </span>
-        <span class="col-start-3 row-start-1 text-slate-500 md:col-start-auto md:row-start-auto md:order-last"><Icon name="chevron" /></span>
-        <span class="col-start-2 col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs md:contents">
-          <span class="text-slate-300 md:text-sm">{{ ago(r.lastActivity, now) }}<span class="hidden text-xs text-slate-500 md:block">last active</span></span>
-          <span class="min-w-0 text-slate-300 md:text-sm"><span class="md:block md:truncate">{{ r.machine }}</span><span v-if="offline(r.machineId)" class="ml-1 rounded bg-slate-700 px-1 text-xs text-slate-400 md:ml-0">offline</span>
-            <span class="text-slate-500 md:block md:text-xs"><span class="md:hidden"> · </span>{{ shortOs(osOf[r.machineId]) }}</span></span>
-          <span class="flex items-center gap-2 text-slate-300 md:text-sm"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-slate-700 text-[11px] font-semibold">{{ agent(r.runtime).badge }}</span>{{ agent(r.runtime).name }}</span>
-          <span class="justify-self-start rounded-md border px-2 py-0.5 text-xs" :class="stateOf(r.state).pill">{{ stateOf(r.state).label }}</span>
-        </span>
-        <span v-if="r.lastAction || r.pendingCommands" class="col-start-2 col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs md:col-start-auto md:col-span-1">
-          <span v-if="r.lastAction" :title="r.lastAction" class="flex min-w-0 items-center gap-2">
-            <span v-if="splitAction(r.lastAction).verb" class="text-slate-400">{{ splitAction(r.lastAction).verb }}</span>
-            <code class="truncate rounded bg-slate-800 px-1.5 py-0.5 font-mono text-slate-200">{{ splitAction(r.lastAction).arg }}</code>
-          </span>
-          <span v-if="r.pendingCommands" class="flex items-center gap-1 text-sky-300"><Icon name="chat" class="h-4 w-4" />{{ r.pendingCommands }} waiting</span>
-        </span>
-        <span v-else class="hidden md:block"></span>
-      </a>
+      <ul v-show="showDone" id="done-list" class="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+        <li v-for="r in done" :key="key(r)">
+          <a :href="href(r)" class="block min-h-12 px-4 py-2 hover:bg-raised focus-visible:bg-raised">
+            <span class="flex items-baseline justify-between gap-2"><span class="break-words font-semibold">{{ r.title ?? folder(r.cwd) }}</span><span class="shrink-0 text-sm text-muted">{{ ago(r.lastActivity, now) }}</span></span>
+            <span class="block text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }}</span>
+            <span v-if="r.lastAction" class="block break-all font-mono text-xs text-muted">{{ r.lastAction }}</span>
+          </a>
+        </li>
+      </ul>
     </section>
   </div>
 </template>

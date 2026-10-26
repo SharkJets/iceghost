@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, agent, commandLabel, isOffline, shortOs, splitAction } from './format'
+import { ago, agent, commandLabel, isOffline, matches, shortOs, summary, splitAction } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -55,4 +55,16 @@ it('agent and splitAction', () => {
   expect(agent('zed')).toEqual({ badge: 'Z', name: 'zed' })
   expect(splitAction('Bash: dotnet test: x')).toEqual({ verb: 'Bash', arg: 'dotnet test: x' })
   expect(splitAction('thinking')).toEqual({ verb: '', arg: 'thinking' })
+})
+
+it('matches and summary', () => {
+  const r = { title: 'Fix Bug', cwd: '/srv/app', machine: 'Box', runtime: 'claude', state: 'working' }
+  expect(matches(r, '')).toBe(true)
+  expect(matches(r, 'fix')).toBe(true)
+  expect(matches(r, 'SRV')).toBe(true)
+  expect(matches(r, 'box')).toBe(true)
+  expect(matches(r, 'claude code')).toBe(true)
+  expect(matches(r, 'nope')).toBe(false)
+  expect(matches({ ...r, title: null }, 'fix')).toBe(false)
+  expect(summary([r, r, { state: 'done' }])).toEqual({ needsInput: 0, stalled: 0, working: 2, done: 1 })
 })

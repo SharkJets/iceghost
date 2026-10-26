@@ -49,10 +49,21 @@ export function splitAction(a: string): { verb: string; arg: string } {
   return i < 0 ? { verb: '', arg: a } : { verb: a.slice(0, i), arg: a.slice(i + 2) }
 }
 
-export const states: Record<string, { label: string; hint: string; icon: string; pill: string; head: string; text: string; border: string }> = {
-  needsInput: { label: 'Needs Input', hint: 'Sessions waiting for your input', icon: 'alert', pill: 'border-red-500/60 bg-red-500/15 text-red-300', head: 'bg-red-950/60', text: 'text-red-400', border: 'border-l-red-500' },
-  stalled: { label: 'Stalled', hint: "Sessions haven't made progress recently", icon: 'clock', pill: 'border-amber-500/60 bg-amber-500/15 text-amber-300', head: 'bg-amber-950/50', text: 'text-amber-400', border: 'border-l-amber-500' },
-  working: { label: 'Working', hint: 'Sessions actively making progress', icon: 'play', pill: 'border-sky-500/60 bg-sky-500/15 text-sky-300', head: 'bg-sky-950/60', text: 'text-sky-400', border: 'border-l-sky-500' },
-  done: { label: 'Done', hint: 'Recently completed sessions', icon: 'check', pill: 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300', head: 'bg-emerald-950/50', text: 'text-emerald-400', border: 'border-l-emerald-500' },
+export const states: Record<string, { label: string; hint: string; icon: string; text: string; dot: string }> = {
+  needsInput: { label: 'Needs you', hint: 'Sessions waiting for your input', icon: 'alert', text: 'text-needs', dot: 'h-2.5 w-2.5 rotate-45 bg-needs' },
+  stalled: { label: 'Stalled', hint: "Sessions haven't made progress recently", icon: 'clock', text: 'text-stall', dot: 'h-2.5 w-2.5 bg-stall' },
+  working: { label: 'Working', hint: 'Sessions actively making progress', icon: 'play', text: 'text-link', dot: 'h-2.5 w-2.5 rounded-full bg-link' },
+  done: { label: 'Done', hint: 'Recently completed sessions', icon: 'check', text: 'text-ok', dot: 'h-2.5 w-2.5 rounded-full border-2 border-ok' },
 }
 export const stateOf = (s: string) => states[s] ?? { ...states.done, label: s, hint: '' }
+
+type Row = { title: string | null; cwd: string; machine: string; runtime: string; state: string }
+export const matches = (r: Row, q: string) => {
+  const n = q.trim().toLowerCase()
+  return !n || [r.title, r.cwd, r.machine, agent(r.runtime).name].some(f => f?.toLowerCase().includes(n))
+}
+export const summary = (rows: { state: string }[]) => {
+  const c: Record<string, number> = { needsInput: 0, stalled: 0, working: 0, done: 0 }
+  for (const r of rows) c[r.state] = (c[r.state] ?? 0) + 1
+  return c
+}
