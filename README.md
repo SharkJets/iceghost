@@ -122,7 +122,7 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 
 ## Deploy
 
-1. Image: a push to `main` runs `.github/workflows/pipeline.yml`, which builds and pushes `skidvis/iceghost:latest` (repo secrets `DOCKER_USER` and `DOCKER_PASS`). By hand: `docker build -t skidvis/iceghost:latest . && docker push skidvis/iceghost:latest`. Use your own image name if you fork.
+1. Image: a push to `main` runs `.github/workflows/pipeline.yml`, which builds and pushes `skidvis/iceghost:latest`. By hand: `docker build -t skidvis/iceghost:latest . && docker push skidvis/iceghost:latest`. Use your own image name if you fork.
 2. Kubernetes: `deploy/kubernetes.yaml` holds a Secret, a 1 Gi PersistentVolumeClaim for the SQLite file, a single-replica Deployment (strategy `Recreate`: one SQLite file, never two pods), a Service and an nginx Ingress. If you use flux-gitops, copy the file into your cluster's deployments directory. Edit the PVC `storageClassName`, the `TZ` value and the Ingress host to match your cluster.
 3. Set the admin password: replace `REPLACE_ME` in the `iceghost-secrets` Secret with a password of at least 12 characters. Do not commit the real value.
 4. Public hostname: the manifest's Ingress uses `iceghost.example.com` as its example host; change it to your domain. With a Cloudflare tunnel, go to **Cloudflare Zero Trust > Networks > Tunnels >** your tunnel **> Public Hostnames** and add:
