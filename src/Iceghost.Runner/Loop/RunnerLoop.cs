@@ -248,7 +248,7 @@ public sealed class RunnerLoop(
             var key = Hash(sorted.Select(s => s with { LastActivity = default, Tail = [], LastAction = null }).ToList()); // set, states, titles
             var full = running.Count > 0 || _force || key != _lastKey || now - _lastFull >= FullEvery
                 || (hash != _lastHash && now - _lastFull >= ActivityEvery);
-            await client.ReportAsync(new RunnerReport(Environment.MachineName, RuntimeInformation.OSDescription, full ? sessions : null), ct);
+            await client.ReportAsync(new RunnerReport(Environment.MachineName, RuntimeInformation.OSDescription, full ? sessions : null) { RunnerVersion = RunnerInfo.Version }, ct);
             if (running.Count > 0) { _lastHash = _lastKey = null; return; } // transient Working override: next report must be full
             if (full) { _lastHash = hash; _lastKey = key; _lastFull = now; }
             _force = false;

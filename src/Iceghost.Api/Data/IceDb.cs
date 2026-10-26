@@ -11,6 +11,7 @@ public sealed class MachineEntity
     public string? Hostname { get; set; }
     public string? Os { get; set; }
     public DateTimeOffset? LastSeen { get; set; }
+    public string? RunnerVersion { get; set; }
 }
 
 public sealed class SessionEntity

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api, Unauthorized, type SessionRow, type MachineRow } from './api'
-import { ago, agent, matches, sessionLabel, splitAction, stateOf, summary } from './format'
+import { ago, agent, matches, runnerOutdated, sessionLabel, splitAction, stateOf, summary } from './format'
 import { guard } from './route'
 import { usePoll, ticker } from './useNow'
 import Icon from './Icon.vue'
@@ -10,12 +10,16 @@ const emit = defineEmits<{ unauth: [] }>()
 const rows = ref<SessionRow[]>([])
 const now = ticker()
 const seen = ref<Record<number, string | null>>({})
+const machineRows = ref<MachineRow[]>([])
+const version = import.meta.env.VITE_VERSION || 'dev'
+const stale = computed(() => machineRows.value.filter(m => m.lastSeen && runnerOutdated(m.runnerVersion, version)))
 const offline = (id: number) => id in seen.value && (!seen.value[id] || now.value.getTime() - new Date(seen.value[id]!).getTime() > 120000)
 usePoll(async () => {
   try { rows.value = await api<SessionRow[]>('/api/sessions') }
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); throw e }
   try {
     const ms = await api<MachineRow[]>('/api/machines')
+    machineRows.value = ms
     seen.value = Object.fromEntries(ms.map(m => [m.id, m.lastSeen]))
   }
   catch (e) { if (e instanceof Unauthorized) emit('unauth') }
@@ -64,6 +68,10 @@ const reply = guard(async (r: SessionRow) => {
         <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-ok" aria-hidden="true"></span>Live</span>
       </p>
     </header>
+    <p v-if="stale.length" role="status" class="break-words rounded-lg border border-needs/60 bg-card px-3 py-2 text-sm text-needs">
+      {{ stale.length }} {{ stale.length === 1 ? 'runner' : 'runners' }} out of date: {{ stale.map(m => `${m.name} (${m.runnerVersion ? 'v' + m.runnerVersion.replace(/^v/, '') : 'unknown'})`).join(', ') }}.
+      <a href="https://github.com/SharkJets/iceghost/releases/latest" target="_blank" rel="noopener" class="font-semibold underline">Update</a> to {{ version }}
+    </p>
     <div role="search" class="flex flex-wrap gap-3">
       <label class="min-w-0 flex-1 basis-full sm:basis-60"><span class="sr-only">Search sessions</span>
         <input v-model="q" type="search" placeholder="Search sessions" class="min-h-12 w-full rounded-lg border border-edge bg-panel px-3 text-ink placeholder:text-muted" />

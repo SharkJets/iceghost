@@ -9,7 +9,7 @@ namespace Iceghost.Api.Data;
 public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null);
 public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null, bool HasImage = false);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
-public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen);
+public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen, string? RunnerVersion = null);
 public sealed class MachineOfflineException(string message) : Exception(message);
 
 public sealed class IceStore
@@ -30,6 +30,8 @@ public sealed class IceStore
             if (!cols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Commands ADD COLUMN {col} {type} NULL");
         if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Sessions')").ToList().Contains("LastAction"))
             db.Database.ExecuteSqlRaw("ALTER TABLE Sessions ADD COLUMN LastAction TEXT NULL");
+        if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Machines')").ToList().Contains("RunnerVersion"))
+            db.Database.ExecuteSqlRaw("ALTER TABLE Machines ADD COLUMN RunnerVersion TEXT NULL");
     }
 
     IceDb Db() => new(_opts);
@@ -64,6 +66,7 @@ public sealed class IceStore
         m.Hostname = r.Hostname;
         m.Os = r.Os;
         m.LastSeen = now;
+        if (r.RunnerVersion is not null) m.RunnerVersion = r.RunnerVersion; // old runners omit it: keep the last known
         if (r.Sessions is not null)
         {
             db.Sessions.RemoveRange(db.Sessions.Where(s => s.MachineId == machineId));
@@ -188,7 +191,7 @@ public sealed class IceStore
     public IReadOnlyList<MachineRow> ListMachines()
     {
         using var db = Db();
-        return db.Machines.OrderBy(m => m.Id).AsEnumerable().Select(m => new MachineRow(m.Id, m.Name, m.Hostname, m.Os, m.LastSeen)).ToList();
+        return db.Machines.OrderBy(m => m.Id).AsEnumerable().Select(m => new MachineRow(m.Id, m.Name, m.Hostname, m.Os, m.LastSeen, m.RunnerVersion)).ToList();
     }
 
     public bool DeleteMachine(long id)

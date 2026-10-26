@@ -153,6 +153,8 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 
    `--state-dir PATH` overrides the state dir. After this, `iceghost-runner run` alone reuses the saved config.
 
+   To upgrade, replace the binary with the latest release and restart it. The runner prints its version at startup, and the homepage flags runners older than the server.
+
 State dir: `%LOCALAPPDATA%\Iceghost Runner` on Windows, `~/Library/Application Support/Iceghost Runner` on macOS, `$XDG_STATE_HOME/iceghost-runner` or `~/.local/state/iceghost-runner` on Linux. The file is `config.json`, mode 0600 on Unix. It holds the token, so keep it private.
 
 `config.json` (camelCase; runtime keys are `claude`, `codex`, `pi`):

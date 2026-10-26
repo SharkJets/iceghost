@@ -23,4 +23,4 @@ export type SessionRow = {
 export type Entry = { role: string; text: string; at: string }
 export type CommandRow = { id: number; text: string; status: string; output: string | null; createdAt: string; startedAt?: string | null; heartbeatAt?: string | null; hasImage?: boolean }
 export type SessionDetail = { session: SessionRow; tail: Entry[]; commands: CommandRow[] }
-export type MachineRow = { id: number; name: string; hostname: string | null; os: string | null; lastSeen: string | null }
+export type MachineRow = { id: number; name: string; hostname: string | null; os: string | null; lastSeen: string | null; runnerVersion?: string | null }

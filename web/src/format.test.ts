@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, agent, commandLabel, isOffline, matches, sessionLabel, shortOs, summary, splitAction } from './format'
+import { ago, agent, commandLabel, isOffline, matches, parseVer, runnerOutdated, sessionLabel, shortOs, summary, splitAction } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -73,4 +73,25 @@ describe('sessionLabel', () => {
   it('prefixes folder to title', () => expect(sessionLabel({ title: 'Fix', cwd: '/a/proj' })).toBe('proj · Fix'))
   it('null title', () => expect(sessionLabel({ title: null, cwd: '/a/proj' })).toBe('proj'))
   it('empty title', () => expect(sessionLabel({ title: '', cwd: '/a/proj/' })).toBe('proj'))
+})
+
+describe('versions', () => {
+  it('parseVer', () => {
+    expect(parseVer('v0.1.16')).toEqual([0, 1, 16])
+    expect(parseVer('0.1.16')).toEqual([0, 1, 16])
+    expect(parseVer('v0.1.16-2-gabc1234')).toEqual([0, 1, 16])
+    for (const v of ['dev', null, undefined, '', 'junk', '1.2']) expect(parseVer(v)).toBeNull()
+  })
+  it('runnerOutdated', () => {
+    expect(runnerOutdated('0.1.12', 'v0.1.16')).toBe(true)
+    expect(runnerOutdated('0.1.16', 'v0.1.16')).toBe(false)
+    expect(runnerOutdated('0.2.0', 'v0.1.16')).toBe(false)
+    expect(runnerOutdated('0.1.9', 'v0.1.10')).toBe(true)
+    expect(runnerOutdated('v0.1.16-2-gabc', 'v0.1.16')).toBe(false)
+    expect(runnerOutdated(null, 'v0.1.16')).toBe(true)
+    expect(runnerOutdated('junk', 'v0.1.16')).toBe(true)
+    expect(runnerOutdated('dev', 'v0.1.16')).toBe(false)
+    expect(runnerOutdated('0.1.1', 'dev')).toBe(false)
+    expect(runnerOutdated(null, 'dev')).toBe(false)
+  })
 })

@@ -17,7 +17,11 @@ public sealed record SessionReport(Runtime Runtime, string SessionId, string Cwd
     public string? Permission { get; init; }
     public string? LastAction { get; init; }
 }
-public sealed record RunnerReport(string Hostname, string Os, IReadOnlyList<SessionReport>? Sessions); // null = heartbeat, no change
+public sealed record RunnerReport(string Hostname, string Os, IReadOnlyList<SessionReport>? Sessions) // null = heartbeat, no change
+{
+    /// <summary>Runner build version (release tag without "v", or "dev"); old runners omit it.</summary>
+    public string? RunnerVersion { get; init; }
+}
 public sealed record RunnerCommand(long Id, Runtime Runtime, string SessionId, string Cwd, string Text)
 {
     public string? Permission { get; init; }

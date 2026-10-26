@@ -65,7 +65,7 @@ jobs:
       - run: dotnet --info
       - shell: bash
         run: |
-          dotnet publish src/Iceghost.Runner -c Release -r "${{ matrix.rid }}" --self-contained true -p:PublishSingleFile=true -o publish
+          dotnet publish src/Iceghost.Runner -c Release -r "${{ matrix.rid }}" --self-contained true -p:PublishSingleFile=true -p:Version="${RELEASE_TAG#v}" -p:InformationalVersion="${RELEASE_TAG#v}" -o publish
           rm -f publish/*.pdb
           if [[ "${{ matrix.rid }}" == win-* ]]; then
             mv publish/Iceghost.Runner.exe publish/iceghost-runner.exe

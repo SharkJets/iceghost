@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <InformationalVersion>dev</InformationalVersion> <!-- unstamped builds; runner-release.yml overrides with -p: -->
   </PropertyGroup>
 
   <ItemGroup>

@@ -31,6 +31,22 @@ export function commandLabel(
 export const isOffline = (lastSeen: string | null | undefined, now: Date) =>
   !lastSeen || now.getTime() - new Date(lastSeen).getTime() > 120000
 
+/** "v0.1.16", "0.1.16", "v0.1.16-2-gabc1234" -> [0,1,16]; dev/null/garbage -> null. */
+export function parseVer(v: string | null | undefined): [number, number, number] | null {
+  const m = v?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+]|$)/)
+  return m ? [+m[1], +m[2], +m[3]] : null
+}
+
+/** Runner older than the server. Dev server or dev runner: never; old runner (no version, junk): yes. */
+export function runnerOutdated(runner: string | null | undefined, server: string): boolean {
+  const s = parseVer(server)
+  if (!s || runner === 'dev') return false
+  const r = parseVer(runner)
+  if (!r) return true
+  for (let i = 0; i < 3; i++) if (r[i] !== s[i]) return r[i] < s[i]
+  return false
+}
+
 export function shortOs(os: string | null | undefined): string {
   if (!os) return '-'
   if (/darwin|macos/i.test(os)) return 'macOS'

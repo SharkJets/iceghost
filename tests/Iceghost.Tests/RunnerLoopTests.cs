@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Iceghost.Contracts;
+using Iceghost.Runner;
 using Iceghost.Runner.Loop;
 using Iceghost.Runner.Adapters;
 using Microsoft.Extensions.Time.Testing;
@@ -111,6 +112,26 @@ public class RunnerLoopTests
         var reports = h.Snapshot().Where(c => c.Path.EndsWith("report")).Select(c => Body<RunnerReport>(c.Body)).ToList();
         Assert.Equal(2, reports[0].Sessions!.Count);
         Assert.Null(reports[1].Sessions);
+    }
+
+    [Fact]
+    public void Runner_version_is_nonempty_without_commit_suffix()
+    {
+        Assert.NotEmpty(RunnerInfo.Version);
+        Assert.DoesNotContain('+', RunnerInfo.Version);
+        Assert.Equal("0.1.16", RunnerInfo.Strip("0.1.16+abc123"));
+        Assert.Equal("dev", RunnerInfo.Strip(null));
+    }
+
+    [Fact]
+    public async Task Every_report_carries_runner_version()
+    {
+        var (loop, h, t) = Make(Server());
+        using var cts = new CancellationTokenSource();
+        var run = loop.RunAsync(cts.Token);
+        await Pump(t, () => h.Snapshot().Count(c => c.Path.EndsWith("report")) >= 2);
+        cts.Cancel(); await run;
+        Assert.All(Reports(h), r => Assert.Equal(RunnerInfo.Version, r.RunnerVersion));
     }
 
     [Fact]

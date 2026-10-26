@@ -336,6 +336,33 @@ public sealed class IceStoreTests : IDisposable
         Assert.Equal("Bash: ls", s2.ListSessions(T)[0].LastAction);
     }
 
+    [Fact]
+    public void Runner_version_stored_and_kept_when_later_report_omits_it()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, new RunnerReport("h", "linux", null) { RunnerVersion = "0.1.16" }, T);
+        Assert.Equal("0.1.16", s.ListMachines()[0].RunnerVersion);
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        Assert.Equal("0.1.16", s.ListMachines()[0].RunnerVersion);
+    }
+
+    [Fact]
+    public void Existing_db_gets_runner_version_column()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "ALTER TABLE Machines DROP COLUMN RunnerVersion;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s2 = Store();
+        s2.ApplyReport(id, new RunnerReport("h", "linux", null) { RunnerVersion = "0.1.2" }, T);
+        Assert.Equal("0.1.2", s2.ListMachines()[0].RunnerVersion);
+    }
+
     static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
 
     [Fact]

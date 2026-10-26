@@ -17,6 +17,7 @@ public static class Program
         }
 
         var flags = ParseFlags(args.Skip(1));
+        Console.WriteLine($"iceghost-runner {RunnerInfo.Version}");
         var dir = flags.GetValueOrDefault("--state-dir") ?? RunnerConfig.StateDir();
         if (flags.ContainsKey("--headless")) Headless.Enable(dir);
         var server = flags.GetValueOrDefault("--server");

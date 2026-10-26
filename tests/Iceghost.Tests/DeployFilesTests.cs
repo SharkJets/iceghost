@@ -36,6 +36,12 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Release_stamps_runner_version()
+    {
+        Assert.Contains("InformationalVersion", Read(".github/workflows/runner-release.yml"));
+    }
+
+    [Fact]
     public void Release_builds_desktop()
     {
         var text = Read(".github/workflows/runner-release.yml");
