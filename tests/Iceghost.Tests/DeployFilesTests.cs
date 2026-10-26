@@ -46,7 +46,7 @@ public class DeployFilesTests
     [Fact]
     public void Manifest_host()
     {
-        Assert.Contains("host: iceghost.example.com", Read("deploy/kubernetes.yaml"));
+        Assert.Contains("host: example.com", Read("deploy/kubernetes.yaml"));
     }
 
     [Fact]

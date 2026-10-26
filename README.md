@@ -125,7 +125,7 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 1. Image: a push to `main` runs `.github/workflows/pipeline.yml`, which builds and pushes `skidvis/iceghost:latest`. By hand: `docker build -t skidvis/iceghost:latest . && docker push skidvis/iceghost:latest`. Use your own image name if you fork.
 2. Kubernetes: `deploy/kubernetes.yaml` holds a Secret, a 1 Gi PersistentVolumeClaim for the SQLite file, a single-replica Deployment (strategy `Recreate`: one SQLite file, never two pods), a Service and an nginx Ingress. If you use flux-gitops, copy the file into your cluster's deployments directory. Edit the PVC `storageClassName`, the `TZ` value and the Ingress host to match your cluster.
 3. Set the admin password: replace `REPLACE_ME` in the `iceghost-secrets` Secret with a password of at least 12 characters. Do not commit the real value.
-4. Public hostname: the manifest's Ingress uses `iceghost.example.com` as its example host; change it to your domain. With a Cloudflare tunnel, go to **Cloudflare Zero Trust > Networks > Tunnels >** your tunnel **> Public Hostnames** and add:
+4. Public hostname: the manifest's Ingress uses `example.com` as its example host; change it to your domain. With a Cloudflare tunnel, go to **Cloudflare Zero Trust > Networks > Tunnels >** your tunnel **> Public Hostnames** and add:
 
    | Field | Value |
    |---|---|
@@ -137,7 +137,7 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 
 ## Enroll a machine
 
-1. Open your server (for example `https://iceghost.example.com`), log in with the admin password, go to Machines and add this PC by name. Copy the token it gives you; it is shown once.
+1. Open your server (for example `https://example.com`), log in with the admin password, go to Machines and add this PC by name. Copy the token it gives you; it is shown once.
 2. Get the runner for your OS and architecture (`win-x64`, `win-arm64`, `osx-x64`, `osx-arm64`, `linux-x64`, `linux-arm64`):
    - **Release:** download `iceghost-runner-<tag>-<rid>.zip` (Windows) or `.tar.gz` (others) from GitHub Releases (published on `v*` tags) and check it against `SHA256SUMS`.
    - **CI build:** every push and pull request uploads `iceghost-runner-<rid>` artifacts to the Actions run (kept 14 days).
@@ -146,7 +146,7 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 3. Run it once with the server and token. This saves `config.json` to the state dir and starts the loop:
 
    ```
-   iceghost-runner run --server https://iceghost.example.com --token TOKEN
+   iceghost-runner run --server https://example.com --token TOKEN
    ```
 
    `--state-dir PATH` overrides the state dir. After this, `iceghost-runner run` alone reuses the saved config.
@@ -157,7 +157,7 @@ State dir: `%LOCALAPPDATA%\Iceghost Runner` on Windows, `~/Library/Application S
 
 ```json
 {
-  "server": "https://iceghost.example.com",
+  "server": "https://example.com",
   "token": "TOKEN",
   "extraArgs": { "claude": ["--permission-mode", "acceptEdits"] },
   "timeoutMinutes": 30,
@@ -236,7 +236,7 @@ pnpm install
 pnpm dist
 ```
 
-Installers land in `electron/dist` (NSIS on Windows, DMG on macOS, AppImage on Linux). The server URL is `ICEGHOST_URL` if set, else the contents of `url.txt` in the app's user-data directory, else the built-in default (`https://iceghost.example.com`, the example host; set yours). `pnpm start` runs it unpackaged.
+Installers land in `electron/dist` (NSIS on Windows, DMG on macOS, AppImage on Linux). The server URL is `ICEGHOST_URL` if set, else the contents of `url.txt` in the app's user-data directory, else the built-in default (`https://example.com`, the example host; set yours). `pnpm start` runs it unpackaged.
 
 ## Phone
 

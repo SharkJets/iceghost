@@ -11,5 +11,5 @@ test("saved used when env unset", () => {
 });
 
 test("default when neither set", () => {
-  assert.strictEqual(resolveUrl({}, null), "https://iceghost.example.com");
+  assert.strictEqual(resolveUrl({}, null), "https://example.com");
 });

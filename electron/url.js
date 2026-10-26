@@ -1,4 +1,4 @@
-const DEFAULT_URL = "https://iceghost.example.com";
+const DEFAULT_URL = "https://example.com";
 
 // Precedence: ICEGHOST_URL env, then the saved url.txt contents, then the default.
 function resolveUrl(env, saved) {
