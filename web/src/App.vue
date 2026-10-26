@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { api, auth } from './api'
+import { api, auth, type SessionRow } from './api'
 import Icon from './Icon.vue'
 import Logo from './Logo.vue'
 import Login from './Login.vue'
@@ -8,6 +8,8 @@ import SessionList from './SessionList.vue'
 import SessionView from './SessionView.vue'
 import Machines from './Machines.vue'
 import { parseRoute } from './route'
+import { usePoll } from './useNow'
+import { loadSeen, pickNew, show, store, supported } from './notify'
 
 const mainEl = ref<HTMLElement | null>(null)
 const hash = ref(location.hash || '#/')
@@ -23,6 +25,26 @@ const route = computed(() => parseRoute(hash.value))
 
 async function logout() { await api('/api/logout', 'POST').catch(() => {}); authed.value = false }
 function loggedIn() { authed.value = true; gen.value++ }
+
+const canNotify = supported()
+const perm = ref(canNotify ? Notification.permission : 'denied')
+const notifyOn = ref(canNotify && perm.value === 'granted' && store.get('ig.notify') === '1')
+const notifyTitle = computed(() => perm.value === 'denied' ? 'Notifications blocked in browser settings' : notifyOn.value ? 'Notifications on' : 'Notify me when a session needs me')
+let seen = loadSeen(), primed = false // the first poll after enabling only fills `seen`
+const check = async () => {
+  if (!authed.value || !notifyOn.value) return
+  const r = pickNew(await api<SessionRow[]>('/api/sessions'), seen)
+  seen = r.seen; store.set('ig.notify.seen', JSON.stringify(seen))
+  if (primed && document.visibilityState !== 'visible') show(r.fire)
+  primed = true
+}
+usePoll(check, 15000)
+async function toggleNotify() {
+  primed = false
+  if (notifyOn.value) notifyOn.value = false
+  else if ((perm.value = await Notification.requestPermission()) === 'granted') { notifyOn.value = true; check().catch(() => {}) }
+  store.set('ig.notify', notifyOn.value ? '1' : '0')
+}
 const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm ${on ? 'border-link bg-raised text-ink' : 'border-transparent text-muted hover:text-ink'}`
 </script>
 <template>
@@ -41,6 +63,7 @@ const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 t
         </nav>
         <div class="ml-auto flex items-center gap-3 text-sm text-ink">
           <span class="hidden items-center gap-1.5 sm:flex"><Icon name="user" />admin</span>
+          <button v-if="canNotify" type="button" :disabled="perm === 'denied'" :aria-pressed="notifyOn" :aria-label="notifyTitle" :title="notifyTitle" class="flex min-h-11 min-w-11 items-center justify-center rounded-md border px-3 hover:bg-raised disabled:opacity-50" :class="notifyOn ? 'border-link text-link' : 'border-edge'" @click="toggleNotify"><Icon name="bell" /></button>
           <button class="flex min-h-11 items-center gap-1.5 rounded-md border border-edge px-3 hover:bg-raised" @click="logout"><Icon name="logout" />Log out</button>
         </div>
       </div>

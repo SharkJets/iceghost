@@ -257,6 +257,10 @@ Open your server's URL in the phone's browser, log in, and install it:
 
 The manifest installs it as a standalone app. It needs HTTPS to be installable and to keep the login cookie.
 
+## Notifications
+
+The bell in the header turns on browser notifications for sessions that need you. They fire only while the app is open but not in view (background tab, minimized window or the desktop app), and need HTTPS or localhost. Closed tabs are not notified.
+
 ## Security
 
 - The server can make an enrolled PC run `claude`, `codex` or `pi` with any prompt the logged-in admin types, in the working directory of a session the runner reported. With a permissive `extraArgs` flag that is remote code execution on that PC as that user. Guard the admin password and machine tokens accordingly.
