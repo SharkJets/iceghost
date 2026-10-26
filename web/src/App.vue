@@ -9,6 +9,7 @@ import SessionView from './SessionView.vue'
 import Machines from './Machines.vue'
 import { parseRoute } from './route'
 
+const mainEl = ref<HTMLElement | null>(null)
 const hash = ref(location.hash || '#/')
 const onHash = () => (hash.value = location.hash || '#/')
 addEventListener('hashchange', onHash)
@@ -27,7 +28,7 @@ const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 t
 <template>
   <Login v-if="!authed" @ok="loggedIn" />
   <template v-else>
-    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-brand focus:px-3 focus:py-2 focus:text-white">Skip to content</a>
+    <a href="#main" @click.prevent="mainEl?.focus(); mainEl?.scrollIntoView()" class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-brand focus:px-3 focus:py-2 focus:text-white">Skip to content</a>
     <header class="border-b border-line bg-panel">
       <div class="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 sm:px-6">
         <a href="#/" class="flex min-w-0 items-center gap-3 py-2">
@@ -44,7 +45,7 @@ const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 t
         </div>
       </div>
     </header>
-    <main id="main" class="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+    <main id="main" ref="mainEl" tabindex="-1" class="outline-none mx-auto max-w-7xl px-4 py-5 sm:px-6">
       <SessionView v-if="route.name === 'session'" :key="gen + hash" :machine-id="String(route.machineId)" :session-id="route.sessionId" @unauth="authed = false" />
       <Machines v-else-if="route.name === 'machines'" :key="gen" @unauth="authed = false" />
       <SessionList v-else :key="gen" @unauth="authed = false" />
