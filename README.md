@@ -161,15 +161,18 @@ State dir: `%LOCALAPPDATA%\Iceghost Runner` on Windows, `~/Library/Application S
   "token": "TOKEN",
   "extraArgs": { "claude": ["--permission-mode", "acceptEdits"] },
   "timeoutMinutes": 30,
-  "roots": { "pi": ["~/work/pi-sessions"] }
+  "roots": { "pi": ["~/work/pi-sessions"] },
+  "exe": { "claude": "C:\\Users\\me\\.local\\bin\\claude.exe" }
 }
 ```
 
-`extraArgs` are inserted before the session flag; `roots` replace a CLI's default roots (see Where sessions are found). Edit the file and restart the runner to apply.
+`extraArgs` are inserted before the session flag; `roots` replace a CLI's default roots (see Where sessions are found); `exe` pins a CLI to an absolute path (no PATH search; the file must exist). Edit the file and restart the runner to apply.
 
 ## Run at startup
 
 Each command below runs `iceghost-runner run` with the config saved by the enroll step.
+
+Services start with a minimal `PATH`. After `PATH`, the runner also looks in `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`, `~/.bun/bin`, `~/.volta/bin`, the newest `~/.nvm/versions/node/*/bin`, `/opt/homebrew/bin`, `/usr/local/bin` and `/usr/bin` (on Windows: `%USERPROFILE%\.local\bin`, `%APPDATA%\npm`, `%USERPROFILE%\.bun\bin`, `%USERPROFILE%\.volta\bin`). The startup log shows what it found. Otherwise set the full path in `config.json`, for example `"exe": { "claude": "/opt/tools/claude" }`.
 
 **Windows** (Task Scheduler, at logon):
 
@@ -280,7 +283,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET te
 
 ## Troubleshooting
 
-- **`'pi' not found on PATH`** (or `claude`, `codex`): the runner's own environment, not your shell, must find the CLI. For a service, set `PATH` in the unit or plist. On Windows, npm `.cmd` shims are found through `PATHEXT`.
+- **`'pi' not found on PATH`** (or `claude`, `codex`): the runner's own environment, not your shell, must find the CLI. The runner also checks the usual install folders (see Run at startup); otherwise set `"exe"` in `config.json`, or `PATH` in the unit or plist. On Windows, npm `.cmd` shims are found through `PATHEXT`.
 - **`token rejected: re-enroll this machine`** (exit 3): the machine was deleted or the token is wrong. Add the machine again in the UI and run `iceghost-runner run --server ... --token ...`.
 - **`config.json is invalid`** (exit 2): fix or delete the file named in the message. **`run with --server and --token first`** (exit 2): there is no saved config yet.
 - **Session not listed:** check the roots the runner printed at startup (`(missing)` means the directory does not exist; see Where sessions are found). Only the 50 newest transcripts touched in the last 14 days appear.

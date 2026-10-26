@@ -52,6 +52,17 @@ public class RunnerConfigTests : IDisposable
     }
 
     [Fact]
+    public void Old_config_without_exe_loads()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"server":"https://x","token":"t","extraArgs":{},"timeoutMinutes":30,"maxParallel":2}""");
+        Assert.Null(RunnerConfig.Load(_dir)!.Exe);
+
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"server":"https://x","token":"t","extraArgs":{},"exe":{"claude":"/a/claude"}}""");
+        Assert.Equal("/a/claude", RunnerConfig.Load(_dir)!.Exe![Runtime.Claude]);
+    }
+
+    [Fact]
     public async Task Corrupt_config_exits_2_with_message()
     {
         Directory.CreateDirectory(_dir);

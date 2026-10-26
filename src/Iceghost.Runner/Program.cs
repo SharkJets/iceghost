@@ -49,11 +49,18 @@ public static class Program
         foreach (var rt in new[] { Runtime.Claude, Runtime.Codex, Runtime.Pi })
             foreach (var r in roots.For(rt))
                 Console.WriteLine($"{rt}: {r}{(Directory.Exists(r) ? "" : " (missing)")}");
+        foreach (var rt in new[] { Runtime.Claude, Runtime.Codex, Runtime.Pi })
+        {
+            var key = rt.ToString().ToLowerInvariant();
+            var o = cfg.Exe?.GetValueOrDefault(rt);
+            var shown = o ?? ProcessAdapter.ResolveExecutable(key);
+            Console.WriteLine($"{key}: {shown ?? "not found"}{(o is not null && !(Path.IsPathRooted(o) && File.Exists(o)) ? " (missing)" : "")}");
+        }
         var attach = Path.Combine(dir, "attachments");
         try { foreach (var f in Directory.EnumerateFiles(attach).Where(f => File.GetLastWriteTimeUtc(f) < DateTime.UtcNow.AddDays(-7))) File.Delete(f); } catch { } // best effort
         var scanner = new SessionScanner(roots, TranscriptReader.Read);
         var loop = new RunnerLoop(client, scanner.Scan,
-            runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), maxTurn),
+            runtime => RuntimeAdapters.For(runtime, cfg.ExtraArgs.GetValueOrDefault(runtime) ?? Array.Empty<string>(), maxTurn, cfg.Exe?.GetValueOrDefault(runtime)),
             TimeProvider.System, Math.Max(1, cfg.MaxParallel), TimeSpan.FromMinutes(cfg.TimeoutMinutes), attach);
 
         using var cts = new CancellationTokenSource();

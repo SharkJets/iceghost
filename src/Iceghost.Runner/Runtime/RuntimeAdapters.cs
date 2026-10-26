@@ -18,12 +18,18 @@ public sealed class FakeRuntimeAdapter(Func<RunnerCommand, CommandResult> reply)
 
 public static class RuntimeAdapters
 {
-    public static IRuntimeAdapter For(Runtime runtime, IReadOnlyList<string> extraArgs, TimeSpan timeout) => runtime switch
+    /// <summary>exe: config override. Must be an absolute path to an existing file (no PATH search), else every command fails with that message.</summary>
+    public static IRuntimeAdapter For(Runtime runtime, IReadOnlyList<string> extraArgs, TimeSpan timeout, string? exe = null)
     {
-        Runtime.Claude => new ClaudeAdapter(extraArgs, timeout),
-        Runtime.Codex => new CodexAdapter(extraArgs, timeout),
-        _ => new PiAdapter(extraArgs, timeout),
-    };
+        if (exe is not null && !(Path.IsPathRooted(exe) && File.Exists(exe)))
+            return new FakeRuntimeAdapter(_ => new(false, $"configured exe for {runtime.ToString().ToLowerInvariant()} not found: {exe}"));
+        return runtime switch
+        {
+            Runtime.Claude => exe is null ? new ClaudeAdapter(extraArgs, timeout) : new ClaudeAdapter(extraArgs, timeout, exe),
+            Runtime.Codex => exe is null ? new CodexAdapter(extraArgs, timeout) : new CodexAdapter(extraArgs, timeout, exe),
+            _ => exe is null ? new PiAdapter(extraArgs, timeout) : new PiAdapter(extraArgs, timeout, exe),
+        };
+    }
 }
 
 public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<string> extraArgs, TimeSpan timeout) : IRuntimeAdapter
@@ -34,28 +40,61 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
     private static readonly char[] ShellMeta = ['"', '&', '|', '<', '>', '^', '%', '!', '(', ')', '\n', '\r', '\0'];
     public static bool HasShellMeta(string a) => a.IndexOfAny(ShellMeta) >= 0;
 
+    /// <summary>Usual install dirs services don't have on PATH (absolute only; missing ones are skipped at lookup).</summary>
+    public static IReadOnlyList<string> KnownDirs()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        List<string> dirs;
+        if (OperatingSystem.IsWindows())
+            dirs = [Path.Combine(home, ".local", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"),
+                    Path.Combine(home, ".bun", "bin"), Path.Combine(home, ".volta", "bin")];
+        else
+        {
+            var nvm = Path.Combine(home, ".nvm", "versions", "node");
+            var newest = Directory.Exists(nvm)
+                ? Directory.GetDirectories(nvm).OrderByDescending(d => Version.TryParse(Path.GetFileName(d).TrimStart('v'), out var v) ? v : new Version(0, 0)).Select(d => Path.Combine(d, "bin")).Take(1)
+                : Enumerable.Empty<string>();
+            dirs = [Path.Combine(home, ".local", "bin"), Path.Combine(home, ".claude", "local"), Path.Combine(home, ".npm-global", "bin"),
+                    Path.Combine(home, ".bun", "bin"), Path.Combine(home, ".volta", "bin"), .. newest, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+        }
+        return dirs.Where(Path.IsPathRooted).ToList();
+    }
+
+    /// <summary>Directory to put first on the child's PATH so shims that call `node` next to themselves work under a minimal service PATH.</summary>
+    public static string ChildPath(string exeDir, string? currentPath)
+    {
+        if (string.IsNullOrEmpty(currentPath)) return exeDir;
+        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return currentPath.Split(Path.PathSeparator)[0].Equals(exeDir, cmp) ? currentPath : exeDir + Path.PathSeparator + currentPath;
+    }
+
+    private static bool IsFile(string p) =>
+        File.Exists(p) && (OperatingSystem.IsWindows() || (File.GetUnixFileMode(p) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0);
+
     /// <summary>
-    /// Resolves an executable name via PATH (+ PATHEXT on Windows, .exe first). Returns null when not found.
+    /// Resolves an executable name via PATH, then fallbackDirs (default KnownDirs()); PATHEXT on Windows, .exe first. Returns null when not found.
     /// npm-installed CLIs are .cmd shims on Windows, which Process.Start cannot launch by bare name.
     /// </summary>
-    public static string? ResolveExecutable(string exe, string? pathVar = null)
+    public static string? ResolveExecutable(string exe, string? pathVar = null, IEnumerable<string>? fallbackDirs = null)
     {
-        if (!OperatingSystem.IsWindows()) return exe;
-        var pathExt = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        string[] exts = [".exe", .. pathExt.Where(e => !e.Equals(".exe", StringComparison.OrdinalIgnoreCase))];
+        var win = OperatingSystem.IsWindows();
+        string[] exts = !win ? [] : [".exe", .. (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(e => !e.Equals(".exe", StringComparison.OrdinalIgnoreCase))];
         var dirs = exe.IndexOfAny(['\\', '/']) >= 0
             ? new[] { "" }
-            : (pathVar ?? Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            : (pathVar ?? Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Concat(fallbackDirs ?? KnownDirs());
         foreach (var d in dirs)
         {
             if (d.Length > 0 && !Path.IsPathRooted(d)) continue; // relative PATH entries would resolve against the (untrusted) session cwd inside cmd.exe
             var b = d.Length == 0 ? exe : Path.Combine(d, exe);
-            if (Path.HasExtension(b) && File.Exists(b)) return b;
-            foreach (var x in exts) if (File.Exists(b + x)) return b + x;
+            if ((!win || Path.HasExtension(b)) && IsFile(b)) return b;
+            foreach (var x in exts) if (IsFile(b + x)) return b + x;
         }
         return null;
     }
+
+    private string NotFound() =>
+        $"'{exe}' not found on PATH or in: {string.Join(", ", KnownDirs())}. Set \"exe\": {{ \"{name}\": \"<full path>\" }} in config.json";
 
     private static string Quote(string a) => a.Length > 0 && a.IndexOfAny([' ', '\t']) < 0 ? a : $"\"{a}\"";
 
@@ -82,7 +121,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
         }
         catch (Win32Exception)
         {
-            return new(false, $"'{exe}' not found on PATH");
+            return new(false, NotFound());
         }
         catch (OperationCanceledException)
         {
@@ -97,7 +136,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
     private async Task<CommandResult> RunAsync(RunnerCommand cmd, CancellationToken ct)
     {
         var resolved = ResolveExecutable(exe);
-        if (resolved is null) return new(false, $"'{exe}' not found on PATH");
+        if (resolved is null) return new(false, NotFound());
         var psi = new ProcessStartInfo
         {
             WorkingDirectory = cmd.Cwd,
@@ -110,6 +149,8 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
             StandardErrorEncoding = Utf8,
             StandardInputEncoding = Utf8,
         };
+        if (Path.IsPathRooted(resolved) && Path.GetDirectoryName(resolved) is { Length: > 0 } exeDir)
+            psi.Environment["PATH"] = ChildPath(exeDir, psi.Environment.TryGetValue("PATH", out var cur) ? cur : null);
         var args = Args(cmd.SessionId, cmd.Permission, cmd.AttachDir);
         if (OperatingSystem.IsWindows() && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
         {

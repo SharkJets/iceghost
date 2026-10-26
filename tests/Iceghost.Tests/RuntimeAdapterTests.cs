@@ -50,7 +50,98 @@ public sealed class RuntimeAdapterTests
     public async Task Missing_exe_reports_not_on_path()
     {
         var r = await new ClaudeAdapter([], T, "iceghost-no-such-exe").SendAsync(Cmd("hi"), default);
-        Assert.Equal(new CommandResult(false, "'iceghost-no-such-exe' not found on PATH"), r);
+        Assert.False(r.Ok);
+        Assert.StartsWith("'iceghost-no-such-exe' not found on PATH or in: ", r.Output);
+    }
+
+    [Fact]
+    public async Task Not_found_message_lists_dirs()
+    {
+        var r = await new PiAdapter([], T, "iceghost-no-such-exe").SendAsync(Cmd("hi"), default);
+        Assert.Contains(ProcessAdapter.KnownDirs()[0], r.Output);
+        Assert.EndsWith("Set \"exe\": { \"pi\": \"<full path>\" } in config.json", r.Output);
+    }
+
+    private static string MakeExe(string dir, string name)
+    {
+        var p = Path.Combine(dir, name + (OperatingSystem.IsWindows() ? ".exe" : ""));
+        File.WriteAllText(p, "x");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(p, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return p;
+    }
+
+    [Fact]
+    public void Fallback_dir_used_when_not_on_PATH()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var p = MakeExe(dir, "ig-fake-agent");
+            Assert.Equal(p, ProcessAdapter.ResolveExecutable("ig-fake-agent", "", [dir]));
+            Assert.Null(ProcessAdapter.ResolveExecutable("ig-fake-agent", "", []));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Path_wins_over_fallback()
+    {
+        var a = Directory.CreateTempSubdirectory().FullName;
+        var b = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var p = MakeExe(a, "ig-fake-agent");
+            MakeExe(b, "ig-fake-agent");
+            Assert.Equal(p, ProcessAdapter.ResolveExecutable("ig-fake-agent", a, [b]));
+        }
+        finally { Directory.Delete(a, true); Directory.Delete(b, true); }
+    }
+
+    [Fact]
+    public void Unix_non_executable_file_not_resolved()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "ig-plain"), "x");
+            Assert.Null(ProcessAdapter.ResolveExecutable("ig-plain", dir, []));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task Configured_exe_wins()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var win = OperatingSystem.IsWindows();
+            var path = Path.Combine(dir, win ? "fake.cmd" : "fake.sh");
+            File.WriteAllText(path, win ? "@echo {\"type\":\"result\",\"is_error\":false,\"result\":\"cfg ok\"}\r\n" : "#!/bin/sh\necho '{\"type\":\"result\",\"is_error\":false,\"result\":\"cfg ok\"}'\n");
+            if (!win) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Assert.Equal(new CommandResult(true, "cfg ok"), await RuntimeAdapters.For(Runtime.Claude, [], T, path).SendAsync(Cmd("hi"), default));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task Configured_exe_missing_fails_clearly()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "ig-nope-" + Guid.NewGuid().ToString("N"));
+        Assert.Equal(new CommandResult(false, "configured exe for claude not found: " + missing), await RuntimeAdapters.For(Runtime.Claude, [], T, missing).SendAsync(Cmd("hi"), default));
+        Assert.Contains("configured exe for codex not found: claude", (await RuntimeAdapters.For(Runtime.Codex, [], T, "claude").SendAsync(Cmd("hi"), default)).Output); // relative = no PATH search
+    }
+
+    [Fact]
+    public void ChildPath_prepends_once()
+    {
+        var s = Path.PathSeparator;
+        var d = Path.Combine(Path.GetTempPath(), "bin");
+        Assert.Equal(d, ProcessAdapter.ChildPath(d, null));
+        Assert.Equal($"{d}{s}/x", ProcessAdapter.ChildPath(d, "/x"));
+        Assert.Equal($"{d}{s}/x", ProcessAdapter.ChildPath(d, $"{d}{s}/x"));
+        Assert.Equal($"/y{s}/x{s}{d}", ProcessAdapter.ChildPath("/y", $"/x{s}{d}"));
     }
 
     [Fact]
@@ -78,14 +169,13 @@ public sealed class RuntimeAdapterTests
     [Fact]
     public void Relative_path_entries_are_ignored()
     {
-        if (!OperatingSystem.IsWindows()) return;
         var dir = Directory.CreateTempSubdirectory().FullName;
         var old = Directory.GetCurrentDirectory();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "evil.cmd"), "@echo x\r\n");
+            MakeExe(dir, "evil");
             Directory.SetCurrentDirectory(dir);
-            Assert.Null(ProcessAdapter.ResolveExecutable("evil", "."));
+            Assert.Null(ProcessAdapter.ResolveExecutable("evil", ".", []));
         }
         finally { Directory.SetCurrentDirectory(old); Directory.Delete(dir, true); }
     }
