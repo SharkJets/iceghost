@@ -299,6 +299,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET te
 - **`working directory not found`:** the session's recorded directory no longer exists.
 - **`timed out after N min`:** raise `timeoutMinutes` in `config.json`.
 - **Login works on localhost but not elsewhere:** the cookie is Secure; serve over HTTPS, or set `ICEGHOST_DEV=1` for local http only.
+- **`thread-store conflict ... already has an active writer` (Codex):** Codex keeps a task running in its background daemon after you leave the TUI, and `codex exec resume` cannot open a thread that is still held. When the runner can launch `codex.exe` directly (it looks for it next to the npm `.cmd` shim), it falls back to `codex queue` and the message runs after the current turn. With only the shim it reports that the session is busy instead. If it persists, close the session in Codex (or the Codex app) and send again.
 - **Headless Claude does nothing useful:** it is probably waiting on a permission; add a flag in `extraArgs`.
 
 ## License

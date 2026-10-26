@@ -307,4 +307,71 @@ public sealed class RuntimeAdapterTests
         Assert.DoesNotContain("--add-dir", new ClaudeAdapter([], T).BuildArguments("s1", []));
         Assert.DoesNotContain("--add-dir", new ClaudeAdapter([], T).BuildArguments("s1", [], null, "/a&calc"));
     }
+
+    [Fact]
+    public void Codex_IsBusy_detects_conflict_text()
+    {
+        Assert.True(CodexAdapter.IsBusy("ERROR failed to initialize thread persistence: thread-store conflict: thread 01a already has an active writer"));
+        Assert.True(CodexAdapter.IsBusy("THREAD-STORE CONFLICT"));
+        Assert.False(CodexAdapter.IsBusy("unknown input item type"));
+    }
+
+    [Fact]
+    public void Codex_queue_arguments()
+    {
+        Assert.Equal(["queue", "--thread", "t1", "--message=-hi there"], CodexAdapter.BuildQueueArguments("t1", "-hi there"));
+        Assert.Equal(["queue", "--thread", "t1", "--message=hi", "-s", "read-only"], CodexAdapter.BuildQueueArguments("t1", "hi", "read-only"));
+        Assert.Equal(["queue", "--thread", "t1", "--message=hi"], CodexAdapter.BuildQueueArguments("t1", "hi", "bogus"));
+    }
+
+    [Fact]
+    public void Codex_next_step()
+    {
+        const string busy = "thread-store conflict";
+        Assert.Equal(CodexAdapter.Step.Queue, CodexAdapter.NextStep(true, busy, true));
+        Assert.Equal(CodexAdapter.Step.Busy, CodexAdapter.NextStep(true, busy, false));
+        Assert.Equal(CodexAdapter.Step.Done, CodexAdapter.NextStep(true, "other", true));
+        Assert.Equal(CodexAdapter.Step.Done, CodexAdapter.NextStep(false, busy, true));
+    }
+
+    [Fact]
+    public void Codex_NativeExe_found_and_not_found()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var shim = Path.Combine(dir, "codex.cmd");
+            Assert.Null(CodexAdapter.NativeExe(shim));
+            var root = Path.Combine(dir, "node_modules", "@openai", "codex");
+            var old = Path.Combine(root, "vendor", "x86_64-pc-windows-msvc", "codex");
+            Directory.CreateDirectory(old);
+            File.WriteAllText(Path.Combine(old, "codex.exe"), "x");
+            Assert.Equal(Path.Combine(old, "codex.exe"), CodexAdapter.NativeExe(shim));
+            var neu = Path.Combine(root, "node_modules", "@openai", "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "bin");
+            Directory.CreateDirectory(neu);
+            File.WriteAllText(Path.Combine(neu, "codex.exe"), "x");
+            Assert.Equal(Path.Combine(neu, "codex.exe"), CodexAdapter.NativeExe(shim)); // platform package wins
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task Codex_busy_session_is_queued_or_reported()
+    {
+        // fake codex: `exec` fails with the conflict, `queue` succeeds only when it got the message argument
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var win = OperatingSystem.IsWindows();
+            var path = Path.Combine(dir, win ? "fake.cmd" : "fake.sh");
+            File.WriteAllText(path, win
+                ? "@echo thread-store conflict: already has an active writer 1>&2\r\n@exit /b 1\r\n"
+                : "#!/bin/sh\nif [ \"$1\" = queue ] && [ \"$4\" = \"--message=hello\" ]; then exit 0; fi\necho 'thread-store conflict: already has an active writer' >&2\nexit 1\n");
+            if (!win) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var r = await new CodexAdapter([], T, path).SendAsync(Cmd("hello", rt: Runtime.Codex), default);
+            // Windows: .cmd shim without a native exe next to it, never queue through cmd.exe
+            Assert.Equal(new CommandResult(!win, win ? CodexAdapter.BusyMessage : CodexAdapter.QueuedMessage), r);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }

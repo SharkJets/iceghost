@@ -137,9 +137,46 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
     {
         var resolved = ResolveExecutable(exe);
         if (resolved is null) return new(false, NotFound());
+        resolved = Prefer(resolved);
+        var o = await Exec(cmd.Cwd, resolved, Args(cmd.SessionId, cmd.Permission, cmd.AttachDir), cmd.Text, ct);
+        if (o.Error is not null) return new(false, o.Error);
+        var (code, stdout, stderr) = (o.Code, o.Out, o.Err);
+
+        if (code != 0)
+        {
+            if (await OnFailure(cmd, resolved, stdout, stderr, ct) is { } alt) return alt;
+            return stderr.Contains("session", StringComparison.OrdinalIgnoreCase)
+                && (stderr.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                    || stderr.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+                    || stderr.Contains("invalid", StringComparison.OrdinalIgnoreCase))
+                ? new(false, $"{name}: session not found")
+                : new(false, $"{name} exited with code {code}: {Redact(FailureMessage(stdout, stderr))}");
+        }
+        try { return new(true, Parse(stdout)); }
+        catch (Exception e) when (e is FormatException or System.Text.Json.JsonException)
+        {
+            return new(false, $"{name}: {e.Message}");
+        }
+    }
+
+    /// <summary>Hook: swap the resolved path for a better one (e.g. the real binary behind a shim).</summary>
+    protected virtual string Prefer(string resolved) => resolved;
+
+    /// <summary>Hook: a non-zero exit may be handled by a follow-up; null = report the normal failure.</summary>
+    protected virtual Task<CommandResult?> OnFailure(RunnerCommand cmd, string resolved, string stdout, string stderr, CancellationToken ct) =>
+        Task.FromResult<CommandResult?>(null);
+
+    protected static bool IsShim(string path) =>
+        OperatingSystem.IsWindows() && (path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".bat", StringComparison.OrdinalIgnoreCase));
+
+    protected sealed record Outcome(int Code, string Out, string Err, string? Error = null);
+
+    /// <summary>Runs one process with the prompt on stdin. Shims go through cmd.exe (args checked for metacharacters), everything else uses ArgumentList.</summary>
+    protected async Task<Outcome> Exec(string cwd, string resolved, IReadOnlyList<string> args, string stdin, CancellationToken ct)
+    {
         var psi = new ProcessStartInfo
         {
-            WorkingDirectory = cmd.Cwd,
+            WorkingDirectory = cwd,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
@@ -151,10 +188,9 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
         };
         if (Path.IsPathRooted(resolved) && Path.GetDirectoryName(resolved) is { Length: > 0 } exeDir)
             psi.Environment["PATH"] = ChildPath(exeDir, psi.Environment.TryGetValue("PATH", out var cur) ? cur : null);
-        var args = Args(cmd.SessionId, cmd.Permission, cmd.AttachDir);
-        if (OperatingSystem.IsWindows() && (resolved.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || resolved.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
+        if (IsShim(resolved))
         {
-            if (extraArgs.Any(HasShellMeta)) return new(false, "extra args contain shell metacharacters");
+            if (extraArgs.Any(HasShellMeta)) return new(0, "", "", "extra args contain shell metacharacters");
             psi.FileName = "cmd.exe";
             psi.Arguments = $"/d /s /c \"\"{resolved}\" {string.Join(' ', args.Select(Quote))}\"";
         }
@@ -169,26 +205,10 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
         using var kill = ct.Register(() => { try { p.Kill(true); } catch (InvalidOperationException) { } });
         var outTask = ReadBounded(p.StandardOutput, ct);
         var errTask = ReadBounded(p.StandardError, ct);
-        try { await p.StandardInput.WriteAsync(cmd.Text.AsMemory(), ct); p.StandardInput.Close(); }
+        try { await p.StandardInput.WriteAsync(stdin.AsMemory(), ct); p.StandardInput.Close(); }
         catch (IOException) { } // process exited early; its exit code explains why
         await p.WaitForExitAsync(ct);
-        var stdout = await outTask;
-        var stderr = await errTask;
-
-        if (p.ExitCode != 0)
-        {
-            return stderr.Contains("session", StringComparison.OrdinalIgnoreCase)
-                && (stderr.Contains("not found", StringComparison.OrdinalIgnoreCase)
-                    || stderr.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
-                    || stderr.Contains("invalid", StringComparison.OrdinalIgnoreCase))
-                ? new(false, $"{name}: session not found")
-                : new(false, $"{name} exited with code {p.ExitCode}: {Redact(FailureMessage(stdout, stderr))}");
-        }
-        try { return new(true, Parse(stdout)); }
-        catch (Exception e) when (e is FormatException or System.Text.Json.JsonException)
-        {
-            return new(false, $"{name}: {e.Message}");
-        }
+        return new(p.ExitCode, await outTask, await errTask);
     }
 
     /// <summary>Failure reason: stderr, else the stdout tail (some CLIs report errors on stdout).</summary>
@@ -197,7 +217,7 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
 
     protected static string Tail(string s) { s = s.Trim(); return s.Length > 500 ? s[^500..] : s; }
 
-    private static string Redact(string s)
+    protected static string Redact(string s)
     {
         s = Regex.Replace(s, @"(?i)\bbearer\s+[^\s,;]+", "Bearer [redacted]");
         s = Regex.Replace(s, @"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|token)(\s*[:=]?\s*)([^\s,;]+)", "$1$2[redacted]");
@@ -240,6 +260,51 @@ public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeo
          sessionId, "-"];
     protected override IReadOnlyList<string> Args(string id, string? permission, string? attachDir) => BuildArguments(id, Extra, permission);
     protected override string Parse(string o) => OutputParsers.Codex(o);
+
+    public const string BusyMessage = "Codex is still running this session in the background (another Codex window or the Codex app). Close it, or wait for it to finish, then send again.";
+    public const string QueuedMessage = "Codex is still busy with this session in the background, so your message was queued. It runs after the current turn; the reply will appear in the conversation.";
+    const int MaxQueueText = 16_000; // command-line length ceiling on Windows is ~32k
+
+    public enum Step { Done, Queue, Busy }
+
+    /// <summary>codex keeps tasks alive in a shared app-server daemon; exec resume then fails with a thread-store conflict.</summary>
+    public static bool IsBusy(string text) =>
+        text.Contains("already has an active writer", StringComparison.OrdinalIgnoreCase)
+        || text.Contains("thread-store conflict", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The prompt goes on the command line for queue, so only a directly-launched exe (no cmd.exe) may do it.</summary>
+    public static Step NextStep(bool failed, string output, bool native) =>
+        !failed || !IsBusy(output) ? Step.Done : native ? Step.Queue : Step.Busy;
+
+    // --message=<text> (not a separate arg) so text starting with '-' is not read as a flag
+    public static IReadOnlyList<string> BuildQueueArguments(string sessionId, string text, string? permission = null) =>
+        ["queue", "--thread", sessionId, "--message=" + text,
+         .. permission is not null && Array.IndexOf(Modes, permission) >= 0 ? new[] { "-s", permission } : []];
+
+    /// <summary>The real binary next to an npm shim (filesystem only); null if not found.</summary>
+    public static string? NativeExe(string shimPath)
+    {
+        static IEnumerable<string> Sub(string dir, string pattern) => Directory.Exists(dir) ? Directory.EnumerateDirectories(dir, pattern) : [];
+        var root = Path.Combine(Path.GetDirectoryName(shimPath) ?? "", "node_modules", "@openai", "codex");
+        return Sub(Path.Combine(root, "node_modules", "@openai"), "codex-win32-*").SelectMany(d => Sub(Path.Combine(d, "vendor"), "*"))
+                   .Select(d => Path.Combine(d, "bin", "codex.exe")).FirstOrDefault(File.Exists)
+            ?? Sub(Path.Combine(root, "vendor"), "*").Select(d => Path.Combine(d, "codex", "codex.exe")).FirstOrDefault(File.Exists);
+    }
+
+    protected override string Prefer(string resolved) => IsShim(resolved) && NativeExe(resolved) is { } n ? n : resolved;
+
+    protected override async Task<CommandResult?> OnFailure(RunnerCommand cmd, string resolved, string stdout, string stderr, CancellationToken ct)
+    {
+        switch (NextStep(true, stdout + "\n" + stderr, !IsShim(resolved)))
+        {
+            case Step.Busy: return new(false, BusyMessage);
+            case Step.Queue:
+                if (cmd.Text.Length > MaxQueueText) return new(false, BusyMessage);
+                var q = await Exec(cmd.Cwd, resolved, BuildQueueArguments(cmd.SessionId, cmd.Text, cmd.Permission), "", ct);
+                return q.Code == 0 ? new(true, QueuedMessage) : new(false, $"codex queue failed: {Redact(Tail(q.Err.Trim().Length > 0 ? q.Err : q.Out))}");
+            default: return null;
+        }
+    }
 
     /// <summary>Codex reports failures as JSONL on stdout: last turn.failed, else last error event.</summary>
     protected override string FailureMessage(string stdout, string stderr)
