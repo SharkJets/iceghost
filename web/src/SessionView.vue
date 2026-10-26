@@ -92,13 +92,16 @@ const dismiss = guard(async (id: number) => {
       <section class="flex min-w-0 flex-col rounded-xl lg:overflow-hidden border border-slate-700/60 bg-slate-900/70 lg:col-span-2">
         <div ref="body" class="min-h-48 space-y-4 p-4 lg:max-h-[60vh] lg:overflow-y-auto">
           <p v-if="!tail.length" class="text-sm text-slate-500">No messages yet.</p>
-          <div v-for="(e, i) in tail" :key="i" class="flex gap-3">
+          <div v-for="e in tail" :key="`${e.at}|${e.role}|${e.text.length}|${e.text.slice(0, 40)}`" class="flex gap-3">
             <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">
               <Icon v-if="e.role === 'user'" name="user" /><Icon v-else-if="e.role === 'tool'" name="chevron" /><template v-else>{{ agent(d.session.runtime).badge }}</template>
             </span>
             <div class="min-w-0 flex-1">
               <div class="mb-1 flex items-baseline gap-2 text-xs"><span class="font-semibold text-slate-200">{{ e.role === 'user' ? 'You' : e.role === 'tool' ? 'Tool' : 'Agent' }}</span><span class="text-slate-500">{{ e.at ? ago(e.at, now) : '' }}</span></div>
-              <div v-if="e.role === 'tool'" class="whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 font-mono text-xs text-slate-300">{{ e.text }}</div>
+              <details v-if="e.role === 'tool'" class="group">
+                <summary class="flex min-h-9 cursor-pointer list-none items-center gap-1.5 font-mono text-xs text-slate-400 [&::-webkit-details-marker]:hidden"><span class="shrink-0 transition-transform group-open:rotate-90"><Icon name="chevron" /></span><span class="truncate">{{ e.text.split('\n')[0] }}</span></summary>
+                <div class="whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 font-mono text-xs text-slate-300">{{ e.text }}</div>
+              </details>
               <p v-else class="whitespace-pre-wrap break-words text-sm text-slate-200">{{ e.text }}</p>
             </div>
           </div>
