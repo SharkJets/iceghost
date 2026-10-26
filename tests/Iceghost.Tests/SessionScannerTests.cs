@@ -84,6 +84,16 @@ public class SessionScannerTests : IDisposable
         Assert.DoesNotContain("55", ids);
     }
 
+    [Fact]
+    public void Duplicate_files_report_newest_session_once()
+    {
+        Make("proj/a.jsonl", TimeSpan.FromMinutes(10), "old");
+        Make("proj/a-backup.jsonl", TimeSpan.FromMinutes(1), "new");
+        var sc = new SessionScanner(Roots(), (rt, l) => Snap(true, l[0], l[0] == "new" ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(10)));
+        var r = Assert.Single(sc.Scan(Now));
+        Assert.Equal("new", r.Tail[0].Text);
+    }
+
     SessionScanner Counting(Action<IReadOnlyList<string>> on) =>
         new(Roots(), (rt, l) => { on(l); return Snap(true, "Done.", TimeSpan.FromMinutes(1)) with { Runtime = rt }; });
 

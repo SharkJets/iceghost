@@ -72,7 +72,7 @@ public sealed class IceStore
                 .Where(o => o.Id != machineId && string.Equals(o.Hostname, r.Hostname, StringComparison.OrdinalIgnoreCase) && o.Hostname is not null && !(o.LastSeen > now - OnlineWindow))
                 .Select(o => o.Id).ToList();
             if (ghosts.Count > 0) db.Sessions.RemoveRange(db.Sessions.Where(s => ghosts.Contains(s.MachineId)));
-            foreach (var s in r.Sessions.GroupBy(s => s.SessionId).Select(g => g.Last()))
+            foreach (var s in r.Sessions.GroupBy(s => s.SessionId).Select(g => g.OrderByDescending(x => x.LastActivity).First())) // duplicate files per id: latest activity wins, ties the first
                 db.Sessions.Add(new SessionEntity
                 {
                     MachineId = machineId, SessionId = s.SessionId, Runtime = s.Runtime, Cwd = s.Cwd, Title = s.Title,

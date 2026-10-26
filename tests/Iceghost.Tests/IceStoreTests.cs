@@ -186,6 +186,19 @@ public sealed class IceStoreTests : IDisposable
         Assert.Equal(["new", "old"], s.ListSessions(T).Select(r => r.SessionId));
     }
 
+    [Fact]
+    public void Duplicate_session_keeps_latest_activity()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        var newer = Sess("s1", T.AddHours(1)); var older = Sess("s1", T) with { State = SessionState.Stalled };
+        foreach (var rep in new[] { new[] { newer, older }, [older, newer] })
+        {
+            s.ApplyReport(id, Full(rep), T);
+            var r = Assert.Single(s.ListSessions(T));
+            Assert.Equal((SessionState.Done, T.AddHours(1)), (r.State, r.LastActivity));
+        }
+    }
+
     IceStore Running(out long id)
     {
         var s = Store(); (id, _) = s.CreateMachine("d");

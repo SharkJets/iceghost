@@ -104,7 +104,8 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
             catch (IOException) { } // ponytail: file vanished or unreadable, skipped until next scan
             catch (UnauthorizedAccessException) { }
         }
-        return reports;
+        // backup/copy files share a session id: report the one with the latest activity (ties: newest file, as reports are newest-first)
+        return reports.GroupBy(r => (r.Runtime, r.SessionId)).Select(g => g.OrderByDescending(r => r.LastActivity).First()).ToList();
     }
 
     static List<string> ReadLines(string path, long len)
