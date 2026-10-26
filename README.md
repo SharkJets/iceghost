@@ -297,4 +297,4 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET te
 
 ## License
 
-TBD.
+MIT. See [LICENSE](LICENSE).
