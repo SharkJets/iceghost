@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { visibleCommands } from './outbox'
 import Icon from './Icon.vue'
 import { api, Unauthorized, type SessionDetail, type MachineRow } from './api'
 import { ago, agent, commandLabel, folder, isOffline, shortOs, stateOf } from './format'
@@ -30,9 +31,16 @@ usePoll(async () => {
 
 const pending = (c: { status: string }) => c.status === 'queued' || c.status === 'delivered' || c.status === 'running'
 const offline = computed(() => seen.value !== undefined && isOffline(seen.value, now.value))
-// pending or failed only: completed exchanges are already in the transcript
-const cmds = computed(() => (d.value?.commands ?? []).filter(c => pending(c) || c.status === 'failed').sort((a, b) => b.id - a.id))
+// pending, or failed newer than the newest transcript entry
+const cmds = computed(() => visibleCommands(d.value?.commands ?? [], d.value?.tail.at(-1)?.at))
 const tail = computed(() => [...(d.value?.tail ?? [])].reverse())
+// announce only when the newest entry changes (not on first load)
+const announce = ref('')
+let base: string | undefined
+watch(() => { const e = tail.value[0]; return e ? `${e.at}|${e.role}|${e.text.length}|${e.text.slice(0, 40)}` : '' }, k => {
+  if (base === undefined) { base = k; return }
+  announce.value = k ? `New message from ${tail.value[0].role === 'user' ? 'You' : 'Agent'}` : ''
+})
 const copy = (t: string) => navigator.clipboard?.writeText(t)
 const tones = { normal: 'text-muted', busy: 'text-link', warn: 'text-stall', bad: 'text-bad' }
 const label = (c: SessionDetail['commands'][number]) => {
@@ -103,7 +111,8 @@ const dismiss = guard(async (id: number) => {
           </div>
           <p v-if="err" role="alert" class="mt-1 text-sm text-bad">{{ err }}</p>
         </div>
-        <ol aria-live="polite" class="m-0 flex list-none flex-col gap-4 p-0">
+        <p class="sr-only" role="status" aria-live="polite">{{ announce }}</p>
+        <ol class="m-0 flex list-none flex-col gap-4 p-0">
           <li v-for="c in cmds" :key="'c' + c.id" class="flex max-w-[88%] flex-col items-end gap-1.5 self-end">
             <span class="text-xs text-muted">You · {{ ago(c.createdAt, now) }}<template v-if="c.hasImage"> · screenshot</template></span>
             <p class="m-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-bubble px-3.5 py-3 text-ink">{{ c.text }}</p>
