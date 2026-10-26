@@ -88,7 +88,7 @@ const reply = guard(async (r: SessionRow) => {
       <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-4">
         <article v-for="r in needs" :key="key(r)" class="min-w-0 space-y-3 rounded-xl border border-needs/60 bg-card p-4">
           <div>
-            <h3 class="break-words font-semibold">{{ r.title ?? folder(r.cwd) }}</h3>
+            <h3 class="break-words font-semibold">{{folder(r.cwd)}} · {{ r.title ?? folder(r.cwd) }}</h3>
             <p class="text-sm text-muted">{{ r.machine }} · {{ agent(r.runtime).name }} · {{ ago(r.lastActivity, now) }}<span v-if="offline(r.machineId)" class="ml-1 rounded bg-raised px-1 text-xs">offline</span></p>
             <p class="mt-1 break-all font-mono text-xs text-muted">{{ r.cwd }}</p>
           </div>
