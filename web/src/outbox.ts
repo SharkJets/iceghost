@@ -6,6 +6,6 @@ const isPending = (s: string) => s === 'queued' || s === 'delivered' || s === 'r
 export function visibleCommands<T extends Cmd>(commands: T[], newestTailAt?: string | null): T[] {
   const cut = newestTailAt ? Date.parse(newestTailAt) : NaN
   return commands
-    .filter(c => isPending(c.status) || (c.status === 'failed' && !(Date.parse(c.createdAt) <= cut)))
+    .filter(c => isPending(c.status) || (c.status === 'failed' && (c as { output?: string }).output !== 'dismissed' && !(Date.parse(c.createdAt) <= cut)))
     .sort((a, b) => b.id - a.id)
 }

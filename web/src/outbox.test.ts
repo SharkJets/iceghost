@@ -12,6 +12,10 @@ describe('visibleCommands', () => {
     const r = visibleCommands([c(1, 'failed', '2026-01-01T11:00:00Z'), c(2, 'failed', '2026-01-01T13:00:00Z')], tail)
     expect(r.map(x => x.id)).toEqual([2])
   })
+  it('hides dismissed even when newer than tail', () => {
+    const d = { ...c(1, 'failed', '2026-01-01T13:00:00Z'), output: 'dismissed' }
+    expect(visibleCommands([d], tail)).toEqual([])
+  })
   it('shows failed when no tail; hides completed; newest first', () => {
     expect(visibleCommands([c(1, 'failed', 'x'), c(3, 'queued', 'x'), c(2, 'done', 'x')], null).map(x => x.id)).toEqual([3, 1])
   })
