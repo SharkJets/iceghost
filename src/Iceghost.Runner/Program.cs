@@ -12,14 +12,16 @@ public static class Program
     {
         if (args.Length == 0 || args[0] != "run")
         {
-            Console.Error.WriteLine("usage: iceghost-runner run [--server URL --token TOKEN] [--state-dir PATH] [--headless]");
+            Console.Error.WriteLine("usage: iceghost-runner run [--server URL --token TOKEN] [--state-dir PATH] [--headless [--foreground]]");
             return 2;
         }
 
         var flags = ParseFlags(args.Skip(1));
         Console.WriteLine($"iceghost-runner {RunnerInfo.Version}");
         var dir = flags.GetValueOrDefault("--state-dir") ?? RunnerConfig.StateDir();
-        if (flags.ContainsKey("--headless")) Headless.Enable(dir);
+        var detach = flags.ContainsKey("--headless") && Headless.ShouldDetach(OperatingSystem.IsWindows(),
+            !Console.IsInputRedirected && !Console.IsOutputRedirected, Environment.GetEnvironmentVariables(), flags.ContainsKey("--foreground"));
+        if (flags.ContainsKey("--headless") && !detach) Headless.Enable(dir); // a detaching parent keeps the terminal until the config is checked
         var server = flags.GetValueOrDefault("--server");
         var token = flags.GetValueOrDefault("--token");
 
@@ -44,7 +46,14 @@ public static class Program
             return 2;
         }
 
-        var maxTurn = TimeSpan.FromMinutes(cfg.MaxTurnMinutes); // hard cap handed to the adapter; TimeoutMinutes is the idle limit
+        if (detach)
+        {
+            var pid = Headless.Detach(args);
+            Console.WriteLine($"iceghost-runner running in the background (pid {pid}), log: {Path.Combine(dir, "runner.log")}");
+            return 0;
+        }
+
+        var maxTurn =TimeSpan.FromMinutes(cfg.MaxTurnMinutes); // hard cap handed to the adapter; TimeoutMinutes is the idle limit
         using var http = new HttpClient { BaseAddress = new Uri(cfg.Server) };
         var client = new ServerClient(http, cfg.Token);
         var roots = ScanRoots.Default(cfg.Roots);
@@ -92,13 +101,13 @@ public static class Program
         }
     }
 
-    // ponytail: flag pairs plus --headless, no CLI library; add one when subcommands grow
+    // ponytail: flag pairs plus --headless/--foreground, no CLI library; add one when subcommands grow
     public static Dictionary<string, string> ParseFlags(IEnumerable<string> args)
     {
         var list = args.ToList();
         var flags = new Dictionary<string, string>();
         for (var i = 0; i < list.Count; i++)
-            if (list[i] == "--headless") flags[list[i]] = "true";
+            if (list[i] is "--headless" or "--foreground") flags[list[i]] = "true";
             else if (i + 1 < list.Count) flags[list[i]] = list[++i];
         return flags;
     }

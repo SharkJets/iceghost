@@ -238,6 +238,8 @@ launchctl load ~/Library/LaunchAgents/com.sharkjets.iceghost-runner.plist
 
 `--headless` is optional on Linux and macOS (launchd and systemd have no window), but it writes a log file: `~/.local/state/iceghost-runner/runner.log` or `~/Library/Application Support/Iceghost Runner/runner.log`. The log rotates to `runner.log.1` past 10 MiB.
 
+From a terminal on Linux or macOS, `iceghost-runner run --headless` starts the runner in the background, prints its pid and log path, and returns. Stop it with `pkill -f "iceghost-runner run"` (or kill the printed pid). Add `--foreground` to keep it attached. The units above don't detach: systemd and launchd are detected, and neither runs from a terminal.
+
 ## Desktop app
 
 The Electron shell is a thin window around the web app. Other origins open in the system browser.

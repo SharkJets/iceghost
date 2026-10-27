@@ -25,6 +25,46 @@ public class HeadlessTests : IDisposable
     }
 
     [Fact]
+    public void Foreground_flag_is_valueless()
+    {
+        var f = Iceghost.Runner.Program.ParseFlags(new[] { "--foreground", "--headless", "--state-dir", "d" });
+
+        Assert.True(f.ContainsKey("--foreground"));
+        Assert.True(f.ContainsKey("--headless"));
+        Assert.Equal("d", f["--state-dir"]);
+    }
+
+    [Fact]
+    public void ShouldDetach_only_from_a_unix_terminal()
+    {
+        var none = new Dictionary<string, string>();
+        Assert.True(Headless.ShouldDetach(false, true, none, false));
+        Assert.False(Headless.ShouldDetach(true, true, none, false));
+        Assert.False(Headless.ShouldDetach(false, false, none, false));
+        Assert.False(Headless.ShouldDetach(false, true, none, true));
+        Assert.False(Headless.ShouldDetach(false, true, new Dictionary<string, string> { ["INVOCATION_ID"] = "x" }, false));
+        Assert.False(Headless.ShouldDetach(false, true, new Dictionary<string, string> { ["XPC_SERVICE_NAME"] = "x" }, false));
+        Assert.False(Headless.ShouldDetach(false, true, new Dictionary<string, string> { ["ICEGHOST_DETACHED"] = "1" }, false));
+    }
+
+    [Fact]
+    public void DetachCommand_prefers_setsid_on_linux_and_nohup_on_mac()
+    {
+        var args = new[] { "run", "--headless" };
+
+        var expect = new[] { "/x/ig", "run", "--headless" };
+        var (f, a1) = Headless.DetachCommand(false, "/usr/bin/setsid", "/x/ig", args);
+        Assert.Equal("/usr/bin/setsid", f);
+        Assert.Equal(expect, a1);
+        (f, a1) = Headless.DetachCommand(false, null, "/x/ig", args);
+        Assert.Equal("nohup", f);
+        Assert.Equal(expect, a1);
+        (f, a1) = Headless.DetachCommand(true, "/usr/bin/setsid", "/x/ig", args);
+        Assert.Equal("nohup", f);
+        Assert.Equal(expect, a1);
+    }
+
+    [Fact]
     public void Log_rotates_over_10MiB()
     {
         Directory.CreateDirectory(_dir);
