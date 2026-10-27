@@ -92,7 +92,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open http://localhost:8080 (change the port with `ICEGHOST_PORT` in `.env`). The login cookie is Secure, so for anything beyond localhost put it behind HTTPS (see Deploy). Data lives in the `iceghost-data` volume. Then enroll a machine (below).
+Open http://localhost:8080 (change the port with `ICEGHOST_PORT` in `.env`). The login cookie is Secure, so for anything beyond localhost put it behind HTTPS (see Deploy). Logging in from another device over plain http (e.g. http://192.168.x.x:8080) needs HTTPS in front or `ICEGHOST_DEV=1` in `.env`; localhost and 127.0.0.1 work as is. Data lives in the `iceghost-data` volume. Then enroll a machine (below).
 
 ## Run from source
 

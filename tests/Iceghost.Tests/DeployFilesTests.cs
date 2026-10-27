@@ -71,6 +71,13 @@ public class DeployFilesTests
     }
 
     [Fact]
+    public void Compose_listens_on_8080_even_with_old_env()
+    {
+        Assert.Contains("ASPNETCORE_URLS: http://+:8080", Read("docker-compose.yml"));
+        Assert.DoesNotContain(Read(".env.example").Split('\n'), l => l.TrimStart().StartsWith("ASPNETCORE_URLS="));
+    }
+
+    [Fact]
     public void Gitignore_ignores_env()
     {
         var lines = Read(".gitignore").Split('\n').Select(l => l.Trim()).ToList();
