@@ -263,7 +263,7 @@ The manifest installs it as a standalone app. It needs HTTPS to be installable a
 
 ## Notifications
 
-The bell in the header turns on browser notifications for sessions that need you. They fire only while the app is open but not in view (background tab, minimized window or the desktop app), and need HTTPS or localhost. Closed tabs are not notified.
+The bell in the header turns on browser notifications for sessions that need you. They fire only while the app is open but not in use (background tab, minimized or unfocused window), and need HTTPS or localhost. Closed tabs are not notified. Turning the bell on shows a test notification; if it doesn't appear, the OS is blocking the browser (Windows: Settings → System → Notifications → enable the browser; macOS: System Settings → Notifications). Do Not Disturb / Focus also hides them.
 
 ## Security
 

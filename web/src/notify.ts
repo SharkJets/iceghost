@@ -28,6 +28,11 @@ const open = (title: string, o: NotificationOptions, hash: string) => {
   const n = new Notification(title, { ...o, icon: '/iceghost-logo-500.png' })
   n.onclick = () => { window.focus(); location.hash = hash; n.close() }
 }
+/** Notify unless the user is actively looking: tab hidden, or window visible but not focused. */
+export const shouldShow = (visibility: string, focused: boolean) => visibility !== 'visible' || !focused
+export function showTest() {
+  new Notification('IceGhost notifications are on', { body: 'You will be notified when a session needs you.', icon: '/iceghost-logo-500.png', tag: 'ig-test' })
+}
 export function show(fire: SessionRow[]) {
   if (fire.length > 3) return open(`${fire.length} sessions need you`, { tag: 'ig-needs' }, '#/')
   for (const r of fire) open(sessionLabel(r), { body: `${r.machine} · ${agent(r.runtime).name} needs your input`, tag: key(r) }, `#/s/${key(r)}`)

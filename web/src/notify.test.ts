@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionRow } from './api'
-import { pickNew } from './notify'
+import { pickNew, shouldShow } from './notify'
+
+describe('shouldShow', () => {
+  it('only stays quiet when visible and focused', () => {
+    expect(shouldShow('visible', true)).toBe(false)
+    expect(shouldShow('visible', false)).toBe(true)
+    expect(shouldShow('hidden', true)).toBe(true)
+  })
+})
 
 const row = (state: string, lastActivity = 't1', sessionId = 's'): SessionRow =>
   ({ machineId: 1, machine: 'm', runtime: 'claude', sessionId, cwd: '/x', title: null, state, lastActivity, pendingCommands: 0 })

@@ -9,7 +9,7 @@ import SessionView from './SessionView.vue'
 import Machines from './Machines.vue'
 import { parseRoute } from './route'
 import { usePoll } from './useNow'
-import { loadSeen, pickNew, show, store, supported } from './notify'
+import { loadSeen, pickNew, show, showTest, shouldShow, store, supported } from './notify'
 
 const mainEl = ref<HTMLElement | null>(null)
 const hash = ref(location.hash || '#/')
@@ -35,14 +35,14 @@ const check = async () => {
   if (!authed.value || !notifyOn.value) return
   const r = pickNew(await api<SessionRow[]>('/api/sessions'), seen)
   seen = r.seen; store.set('ig.notify.seen', JSON.stringify(seen))
-  if (primed && document.visibilityState !== 'visible') show(r.fire)
+  if (primed && shouldShow(document.visibilityState, document.hasFocus())) show(r.fire)
   primed = true
 }
 usePoll(check, 15000)
 async function toggleNotify() {
   primed = false
   if (notifyOn.value) notifyOn.value = false
-  else if ((perm.value = await Notification.requestPermission()) === 'granted') { notifyOn.value = true; check().catch(() => {}) }
+  else if ((perm.value = await Notification.requestPermission()) === 'granted') { notifyOn.value = true; showTest(); check().catch(() => {}) }
   store.set('ig.notify', notifyOn.value ? '1' : '0')
 }
 const tab = (on: boolean) => `flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm ${on ? 'border-link bg-raised text-ink' : 'border-transparent text-muted hover:text-ink'}`
