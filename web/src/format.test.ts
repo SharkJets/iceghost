@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ago, agent, commandLabel, isOffline, matches, parseVer, runnerOutdated, sessionLabel, shortOs, summary, splitAction } from './format'
+import { ago, agent, commandLabel, enrollCommand, guessOs, isOffline, matches, parseVer, runnerOutdated, sessionLabel, shortOs, summary, splitAction } from './format'
 
 const now = new Date('2026-10-25T10:05:00Z')
 describe('ago', () => {
@@ -67,6 +67,20 @@ it('matches and summary', () => {
   expect(matches(r, 'nope')).toBe(false)
   expect(matches({ ...r, title: null }, 'fix')).toBe(false)
   expect(summary([r, r, { state: 'done' }])).toEqual({ needsInput: 0, stalled: 0, working: 2, done: 1 })
+})
+
+it('guessOs', () => {
+  expect(guessOs('Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Win32')).toBe('windows')
+  expect(guessOs('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)', 'MacIntel')).toBe('macos')
+  expect(guessOs('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)')).toBe('macos')
+  expect(guessOs('Mozilla/5.0 (X11; Linux x86_64)', 'Linux x86_64')).toBe('linux')
+  expect(guessOs('')).toBe('linux')
+})
+it('enrollCommand', () => {
+  const t = 'run --server http://h --token T'
+  expect(enrollCommand('windows', 'http://h', 'T')).toBe(`.\\iceghost-runner.exe ${t}`)
+  expect(enrollCommand('macos', 'http://h', 'T')).toBe(`xattr -d com.apple.quarantine iceghost-runner; chmod +x iceghost-runner && ./iceghost-runner ${t}`)
+  expect(enrollCommand('linux', 'http://h', 'T')).toBe(`chmod +x iceghost-runner && ./iceghost-runner ${t}`)
 })
 
 describe('sessionLabel', () => {

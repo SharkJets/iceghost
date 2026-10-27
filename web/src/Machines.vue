@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api, Unauthorized, type MachineRow } from './api'
-import { ago, isOffline, runnerOutdated, shortOs } from './format'
+import { ago, enrollCommand, guessOs, isOffline, runnerOutdated, shortOs, type RunnerOs } from './format'
 import Icon from './Icon.vue'
 import { usePoll, ticker } from './useNow'
 
@@ -13,7 +13,9 @@ const err = ref('')
 const adding = ref(false)
 const now = ticker()
 const version = import.meta.env.VITE_VERSION || 'dev'
-const cmd = () => `iceghost-runner run --server ${location.origin} --token ${token.value}`
+const oses: [RunnerOs, string][] = [['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']]
+const sel = ref<RunnerOs>(guessOs(navigator.userAgent, navigator.platform))
+const cmd = () => enrollCommand(sel.value, location.origin, token.value ?? '')
 
 async function load() {
   try { rows.value = await api<MachineRow[]>('/api/machines') }
@@ -55,8 +57,12 @@ const copy = () => navigator.clipboard?.writeText(cmd())
     <p v-if="err" class="text-sm text-bad">{{ err }}</p>
     <div v-if="token" class="rounded-xl border border-line bg-panel p-3 text-sm">
       <p class="mb-1 text-needs">Shown once. Copy it now.</p>
+      <div class="mb-2 flex flex-wrap gap-2">
+        <button v-for="[id, label] in oses" :key="id" :aria-pressed="sel === id" class="min-h-11 rounded px-3" :class="sel === id ? 'bg-brand text-white' : 'bg-raised'" @click="sel = id">{{ label }}</button>
+      </div>
       <code class="block break-all font-mono text-xs">{{ cmd() }}</code>
       <button class="mt-2 min-h-11 rounded bg-raised px-3" @click="copy">Copy</button>
+      <p class="mt-2 text-xs text-muted">Download the runner for your OS from the <a href="https://github.com/SharkJets/iceghost/releases/latest" target="_blank" rel="noopener" class="text-link underline">latest release</a>. The token is only needed on the first run; it is saved, so later just run <code class="font-mono">iceghost-runner{{ sel === 'windows' ? '.exe' : '' }} run</code> (add <code class="font-mono">--headless</code> for no window, see the README).</p>
     </div>
     <div class="overflow-hidden rounded-xl border border-line bg-panel text-sm">
       <div class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_5rem] gap-3 border-b border-line px-4 py-2 text-xs text-muted md:grid">

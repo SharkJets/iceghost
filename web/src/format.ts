@@ -56,6 +56,19 @@ export function shortOs(os: string | null | undefined): string {
   return /linux|ubuntu/i.test(os) ? 'Linux' : os
 }
 
+export type RunnerOs = 'windows' | 'macos' | 'linux'
+export function guessOs(ua: string, platform = ''): RunnerOs {
+  const s = `${platform} ${ua}`
+  if (/^win/i.test(platform) || /windows/i.test(ua)) return 'windows'
+  return /mac|iphone|ipad|darwin/i.test(s) ? 'macos' : 'linux'
+}
+export function enrollCommand(os: RunnerOs, server: string, token: string): string {
+  const args = `run --server ${server} --token ${token}`
+  if (os === 'windows') return `.\\iceghost-runner.exe ${args}`
+  const run = `chmod +x iceghost-runner && ./iceghost-runner ${args}`
+  return os === 'macos' ? `xattr -d com.apple.quarantine iceghost-runner; ${run}` : run
+}
+
 const agents: Record<string, [string, string]> = { claude: ['C', 'Claude Code'], codex: ['X', 'Codex'], pi: ['π', 'pi'] }
 export const agent = (runtime: string) => { const a = agents[runtime]; return { badge: a?.[0] ?? runtime.slice(0, 1).toUpperCase(), name: a?.[1] ?? runtime } }
 
