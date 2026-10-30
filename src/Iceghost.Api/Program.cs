@@ -10,7 +10,7 @@ Iceghost.Api.DotEnv.Load();
 var builder = WebApplication.CreateBuilder(args);
 var dev = Environment.GetEnvironmentVariable("ICEGHOST_DEV") == "1";
 
-builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 4 * 1024 * 1024);
+builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 8 * 1024 * 1024);
 
 var dataDir = Environment.GetEnvironmentVariable("ICEGHOST_DATA") ?? "./data";
 Directory.CreateDirectory(dataDir);

@@ -157,12 +157,24 @@ public class TranscriptReaderTests
     }
 
     [Fact]
-    public void Tail_keeps_last_10()
+    public void Tail_keeps_40_entries()
     {
-        var lines = Enumerable.Range(0, 15).Select(i => CU("m" + i, "2026-10-25T10:00:00Z")).ToList();
+        var lines = Enumerable.Range(0, 60).Select(i => i % 2 == 0 ? CU("m" + i, "2026-10-25T10:00:00Z") : CA("m" + i, "2026-10-25T10:00:00Z")).ToList();
         var s = TranscriptReader.Read(Runtime.Claude, lines)!;
-        Assert.Equal(10, s.Tail.Count);
-        Assert.Equal("m14", s.Tail[^1].Text);
+        Assert.Equal(40, s.Tail.Count);
+        Assert.Equal("m20", s.Tail[0].Text);
+        Assert.Equal("m59", s.Tail[^1].Text);
+    }
+
+    [Fact]
+    public void Tail_budget_drops_oldest()
+    {
+        var lines = Enumerable.Range(0, 40).Select(i => CU(new string((char)('a' + i % 26), 1000), "2026-10-25T10:00:00Z")).ToList();
+        lines.Add(CA(new string('z', 16000), "2026-10-25T10:01:00Z"));
+        var s = TranscriptReader.Read(Runtime.Claude, lines)!;
+        Assert.True(s.Tail.Sum(e => e.Text.Length) <= 40000);
+        Assert.True(s.Tail.Count < 40);
+        Assert.Equal(16000, s.Tail[^1].Text.Length);
     }
 
     [Fact]

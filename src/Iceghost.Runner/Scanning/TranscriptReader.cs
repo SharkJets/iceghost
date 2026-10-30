@@ -7,7 +7,7 @@ using Iceghost.Contracts;
 /// <summary>Parses transcript JSONL lines (claude, codex, pi) into a snapshot. Never throws on bad lines.</summary>
 public static class TranscriptReader
 {
-    const int TailMax = 10, TextMax = 1000, LatestMax = 16000, TitleMax = 80;
+    const int TailMax = 40, TextMax = 1000, LatestMax = 16000, BudgetMax = 40000, TitleMax = 80;
 
     /// <summary>User-role text the harness injects, not the human speaking.</summary>
     static readonly string[] Synthetic = ["<command-name>", "<command-message>", "<local-command-stdout>",
@@ -236,12 +236,15 @@ public static class TranscriptReader
         _ => null,
     };
 
-    /// <summary>Newest assistant entry up to LatestMax, the rest up to TextMax.
-    /// Report bound: 50 sessions x (16 000 + 9 x 1 000) chars = ~1.25 M, under the server's 4 MB request limit.</summary>
+    /// <summary>Newest assistant entry up to LatestMax, the rest up to TextMax; then oldest entries drop until the total fits BudgetMax (the newest reply stays).
+    /// Report bound: 50 sessions x 40 000 chars = ~2 M chars, under the server's 8 MiB request limit.</summary>
     static List<TranscriptEntry> Capped(List<TranscriptEntry> tail)
     {
         var latest = tail.FindLastIndex(e => e.Role == "assistant");
-        return [.. tail.Select((e, i) => e with { Text = Cut(e.Text, i == latest ? LatestMax : TextMax) })];
+        var capped = tail.Select((e, i) => e with { Text = Cut(e.Text, i == latest ? LatestMax : TextMax) }).ToList();
+        int total = capped.Sum(e => e.Text.Length), drop = 0;
+        while (total > BudgetMax && drop < capped.Count - 1 && drop != latest) total -= capped[drop++].Text.Length;
+        return capped[drop..];
     }
 
     static string Cut(string t, int max) => t.Length <= max ? t : t[..(max - 1)] + "…";

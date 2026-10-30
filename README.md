@@ -67,7 +67,7 @@ While the runner executes a command for a session, that session shows `working`.
 - Iceghost never kills a process. If a TUI is hung, resume the session from Iceghost (both append to the same transcript) and close the old TUI yourself.
 - Headless Claude may block on a tool permission prompt. Pass a permission flag through `extraArgs` (see Enroll a machine), for example `--permission-mode acceptEdits`.
 - The runner only acts on sessions in its own latest scan. A message for a session it has not listed fails with `unknown session on this machine`; the runtime and working directory always come from the scan, not from the server.
-- Only the newest 50 transcripts modified in the last 14 days are listed. Each session shows its last 10 entries, each cut to 1000 characters. Subagent transcripts are skipped.
+- Only the newest 50 transcripts modified in the last 14 days are listed. Each session shows its last 40 entries, each cut to 1000 characters (the newest reply to 16 000; about 40 000 characters per session). Subagent transcripts are skipped.
 - One admin password. No invites, no new-session creation, no push notifications.
 - A command times out after `timeoutMinutes` (default 30).
 
