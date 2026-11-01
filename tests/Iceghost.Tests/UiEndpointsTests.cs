@@ -198,6 +198,25 @@ public class UiEndpointsTests
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/machines")).StatusCode);
     }
 
+    static async Task<HttpStatusCode> OldCookieAfterRestart(string newPw)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ig-ui-" + Guid.NewGuid().ToString("N"));
+        string cookie;
+        using (var f1 = Make(dir: dir)) cookie = (await LoggedIn(f1)).setCookie.Split(';')[0];
+        using var f2 = Make(newPw, dir);
+        var c = f2.CreateClient();
+        c.DefaultRequestHeaders.Add("Cookie", cookie);
+        return (await c.GetAsync("/api/sessions")).StatusCode;
+    }
+
+    [Fact]
+    public async Task Cookie_rejected_after_password_change() =>
+        Assert.Equal(HttpStatusCode.Unauthorized, await OldCookieAfterRestart("a different password!"));
+
+    [Fact]
+    public async Task Cookie_survives_restart_with_same_password() =>
+        Assert.Equal(HttpStatusCode.OK, await OldCookieAfterRestart(Pw));
+
     static string B64(params byte[] b) => Convert.ToBase64String(b);
     static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 

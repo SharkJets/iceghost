@@ -36,6 +36,10 @@ public static class UiEndpoints
         return true;
     }
 
+    /// <summary>Claim value binding a cookie to the current admin password (rotating it kills old cookies).</summary>
+    public static string PasswordTag(string? password) =>
+        Convert.ToHexString(SHA256.HashData([.. "iceghost-pwv:"u8, .. SHA256.HashData(Encoding.UTF8.GetBytes(password ?? ""))]), 0, 16);
+
     public static IEndpointRouteBuilder MapUiEndpoints(this IEndpointRouteBuilder app)
     {
         var password = app.ServiceProvider.GetRequiredService<IConfiguration>()["ICEGHOST_ADMIN_PASSWORD"];
@@ -48,7 +52,7 @@ public static class UiEndpoints
         {
             var given = SHA256.HashData(Encoding.UTF8.GetBytes(body?.Password ?? ""));
             if (!CryptographicOperations.FixedTimeEquals(given, expected)) return Results.Unauthorized();
-            var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin")], scheme));
+            var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin"), new Claim("pwv", PasswordTag(password))], scheme));
             await ctx.SignInAsync(scheme, user, new AuthenticationProperties { IsPersistent = true });
             return Results.NoContent();
         }).RequireRateLimiting("login");

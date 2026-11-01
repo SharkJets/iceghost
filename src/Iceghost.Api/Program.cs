@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Iceghost.Api.Data;
 using Iceghost.Api.Endpoints;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +29,15 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.Cookie.SameSite = SameSiteMode.Lax;
         o.ExpireTimeSpan = TimeSpan.FromDays(30);
         o.SlidingExpiration = true;
+        o.Events.OnValidatePrincipal = async ctx =>
+        {
+            var cur = UiEndpoints.PasswordTag(ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>()["ICEGHOST_ADMIN_PASSWORD"]);
+            if (ctx.Principal?.FindFirst("pwv")?.Value != cur)
+            {
+                ctx.RejectPrincipal();
+                await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            }
+        };
         o.Events.OnRedirectToLogin = ctx =>
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;

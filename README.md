@@ -270,7 +270,7 @@ The bell in the header turns on browser notifications for sessions that need you
 - The server can make an enrolled PC run `claude`, `codex` or `pi` with any prompt the logged-in admin types, in the working directory of a session the runner reported. With a permissive `extraArgs` flag that is remote code execution on that PC as that user. Guard the admin password and machine tokens accordingly.
 - Machine tokens are 32 random bytes (base64url), shown once and stored only as a SHA-256 hash. Deleting a machine revokes its token.
 - The admin password is compared as SHA-256 digests in fixed time. The login endpoint has a global rate limit of 5 attempts per minute. It is global on purpose: behind a tunnel or ingress the client IP may be the same for everyone. The cost is that an attacker can lock you out for a minute.
-- Auth cookie `ig_auth`: HttpOnly, Secure (unless `ICEGHOST_DEV=1`), SameSite Lax, 30 days sliding.
+- Auth cookie `ig_auth`: HttpOnly, Secure (unless `ICEGHOST_DEV=1`), SameSite Lax, 30 days sliding. Changing `ICEGHOST_ADMIN_PASSWORD` and restarting signs out every session; logout only signs out the current browser.
 - CSRF: on top of SameSite, non-GET requests to `/api` are rejected with 403 when `Sec-Fetch-Site` is present and is not `same-origin` or `none`.
 - The prompt is written to the CLI's stdin, so it never appears in process listings. The session id must match `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Messages are 1 to 20000 characters. CLI error output sent back is redacted for bearer tokens and keys.
 - Never commit `.env` (it is gitignored) or a real `config.json`.
