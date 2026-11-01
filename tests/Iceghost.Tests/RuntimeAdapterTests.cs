@@ -162,8 +162,30 @@ public sealed class RuntimeAdapterTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    public async Task Cmd_shim_does_not_run_binaries_from_session_cwd()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var repo = Directory.CreateDirectory(Path.Combine(dir, "repo")).FullName;
+            var npm = Directory.CreateDirectory(Path.Combine(dir, "npm")).FullName;
+            var marker = Path.Combine(dir, "marker.txt");
+            File.WriteAllText(Path.Combine(repo, "node.bat"), $"@echo pwned> \"{marker}\"\r\n");
+            var shim = Path.Combine(npm, "fake.cmd");
+            File.WriteAllText(shim, "@node -e \"\"\r\n");
+            var old = Environment.GetEnvironmentVariable("NoDefaultCurrentDirectoryInExePath");
+            Environment.SetEnvironmentVariable("NoDefaultCurrentDirectoryInExePath", null); // the adapter must set it itself
+            try { await new PiAdapter([], T, shim).SendAsync(Cmd("hi", repo, Runtime.Pi), default); }
+            finally { Environment.SetEnvironmentVariable("NoDefaultCurrentDirectoryInExePath", old); }
+            Assert.False(File.Exists(marker));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Theory]
-    [InlineData("a&b"), InlineData("a|b"), InlineData("a^b"), InlineData("%PATH%"), InlineData("!x!"), InlineData("(a)"), InlineData("a\"b"), InlineData("a\nb")]
+    [InlineData("a&b"),InlineData("a|b"), InlineData("a^b"), InlineData("%PATH%"), InlineData("!x!"), InlineData("(a)"), InlineData("a\"b"), InlineData("a\nb")]
     public void Shell_metacharacters_rejected(string arg) => Assert.True(ProcessAdapter.HasShellMeta(arg));
 
     [Fact]

@@ -191,7 +191,8 @@ public abstract class ProcessAdapter(string name, string exe, IReadOnlyList<stri
         if (IsShim(resolved))
         {
             if (extraArgs.Any(HasShellMeta)) return new(0, "", "", "extra args contain shell metacharacters");
-            psi.FileName = "cmd.exe";
+            psi.Environment["NoDefaultCurrentDirectoryInExePath"] = "1"; // cmd.exe must not run bare commands (e.g. node) from the untrusted session cwd
+            psi.FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe");
             psi.Arguments = $"/d /s /c \"\"{resolved}\" {string.Join(' ', args.Select(Quote))}\"";
         }
         else
