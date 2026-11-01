@@ -63,9 +63,9 @@ export function guessOs(ua: string, platform = ''): RunnerOs {
   return /mac|iphone|ipad|darwin/i.test(s) ? 'macos' : 'linux'
 }
 export function enrollCommand(os: RunnerOs, server: string, token: string): string {
-  const args = `run --server ${server} --token ${token}`
-  if (os === 'windows') return `.\\iceghost-runner.exe ${args}`
-  const run = `chmod +x iceghost-runner && ./iceghost-runner ${args}`
+  const args = `run --server ${server}` // token goes in the env, not argv (visible in process listings)
+  if (os === 'windows') return `$env:ICEGHOST_TOKEN='${token}'; .\\iceghost-runner.exe ${args}`
+  const run = `chmod +x iceghost-runner && ICEGHOST_TOKEN=${token} ./iceghost-runner ${args}`
   return os === 'macos' ? `xattr -d com.apple.quarantine iceghost-runner; ${run}` : run
 }
 

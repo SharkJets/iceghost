@@ -23,7 +23,8 @@ public static class Program
             !Console.IsInputRedirected && !Console.IsOutputRedirected, Environment.GetEnvironmentVariables(), flags.ContainsKey("--foreground"));
         if (flags.ContainsKey("--headless") && !detach) Headless.Enable(dir); // a detaching parent keeps the terminal until the config is checked
         var server = flags.GetValueOrDefault("--server");
-        var token = flags.GetValueOrDefault("--token");
+        var token = PickToken(flags, Environment.GetEnvironmentVariable("ICEGHOST_TOKEN"));
+        Environment.SetEnvironmentVariable("ICEGHOST_TOKEN", null); // keep it out of spawned agent CLIs and the detached child
 
         RunnerConfig? cfg;
         try
@@ -48,7 +49,7 @@ public static class Program
 
         if (detach)
         {
-            var pid = Headless.Detach(args);
+            var pid = Headless.Detach(Headless.StripEnrollment(args)); // config.json is saved; keep the token off the daemon's argv
             Console.WriteLine($"iceghost-runner running in the background (pid {pid}), log: {Path.Combine(dir, "runner.log")}");
             return 0;
         }
@@ -100,6 +101,10 @@ public static class Program
             return 3;
         }
     }
+
+    // --token wins over the ICEGHOST_TOKEN env value (empty env counts as unset).
+    public static string? PickToken(IReadOnlyDictionary<string, string> flags, string? env) =>
+        flags.GetValueOrDefault("--token") ?? (string.IsNullOrEmpty(env) ? null : env);
 
     // ponytail: flag pairs plus --headless/--foreground, no CLI library; add one when subcommands grow
     public static Dictionary<string, string> ParseFlags(IEnumerable<string> args)

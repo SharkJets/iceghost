@@ -28,6 +28,17 @@ public static class Headless
     public static (string file, string[] args) DetachCommand(bool isMac, string? setsidPath, string exe, IReadOnlyList<string> args) =>
         !isMac && setsidPath is not null ? (setsidPath, [exe, .. args]) : ("nohup", [exe, .. args]);
 
+    // Drops --server/--token and their values (same pairing as Program.ParseFlags) so the daemon's argv carries no secret.
+    public static string[] StripEnrollment(IReadOnlyList<string> args)
+    {
+        var o = new List<string>(args.Take(1)); // the "run" verb
+        for (var i = 1; i < args.Count; i++)
+            if (args[i] is "--headless" or "--foreground") o.Add(args[i]);
+            else if (args[i] is "--server" or "--token") i++;
+            else { o.Add(args[i]); if (i + 1 < args.Count) o.Add(args[++i]); }
+        return [.. o];
+    }
+
     // Starts the detached child with stdio piped away (closed here) and returns its pid.
     public static int Detach(IReadOnlyList<string> args)
     {

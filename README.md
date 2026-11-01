@@ -148,8 +148,10 @@ The desktop app reads `ICEGHOST_URL` (see Desktop app).
 3. Run it once with the server and token. This saves `config.json` to the state dir and starts the loop:
 
    ```
-   iceghost-runner run --server https://example.com --token TOKEN
+   ICEGHOST_TOKEN=TOKEN iceghost-runner run --server https://example.com
    ```
+
+   On Windows PowerShell: `$env:ICEGHOST_TOKEN='TOKEN'; .\iceghost-runner.exe run --server https://example.com`. The runner reads the token from the environment and removes it from its own environment. `--token TOKEN` still works but is visible to other local users in process listings; prefer the environment form.
 
    `--state-dir PATH` overrides the state dir. After this, `iceghost-runner run` alone reuses the saved config.
 
@@ -300,7 +302,7 @@ CI (`.github/workflows/ci.yml`) runs on every push and pull request: the .NET te
 
 - **`'pi' not found on PATH`** (or `claude`, `codex`): the runner's own environment, not your shell, must find the CLI. The runner also checks the usual install folders (see Run at startup); otherwise set `"exe"` in `config.json`, or `PATH` in the unit or plist. On Windows, npm `.cmd` shims are found through `PATHEXT`.
 - **Where are the runner's logs?** With `--headless`, in `runner.log` in the state dir (see Enroll a machine). Without it, on the console.
-- **`token rejected: re-enroll this machine`** (exit 3): the machine was deleted or the token is wrong. Add the machine again in the UI and run `iceghost-runner run --server ... --token ...`.
+- **`token rejected: re-enroll this machine`** (exit 3): the machine was deleted or the token is wrong. Add the machine again in the UI and run `ICEGHOST_TOKEN=... iceghost-runner run --server ...`.
 - **`config.json is invalid`** (exit 2): fix or delete the file named in the message. **`run with --server and --token first`** (exit 2): there is no saved config yet.
 - **Session not listed:** check the roots the runner printed at startup (`(missing)` means the directory does not exist; see Where sessions are found). Only the 50 newest transcripts touched in the last 14 days appear.
 - **`unknown session on this machine`:** the session was not in the runner's latest scan; wait for the next scan (15 s) or see the point above.

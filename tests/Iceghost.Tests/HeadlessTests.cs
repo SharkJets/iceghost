@@ -25,6 +25,26 @@ public class HeadlessTests : IDisposable
     }
 
     [Fact]
+    public void StripEnrollment_drops_server_and_token_with_values_only()
+    {
+        var a = Headless.StripEnrollment(new[] { "run", "--server", "https://x", "--headless", "--token", "--state-dir", "--state-dir", "d", "--foreground" });
+
+        // a value that looks like a flag ("--state-dir" as the token) is still a value
+        Assert.Equal(new[] { "run", "--headless", "--state-dir", "d", "--foreground" }, a);
+        Assert.Equal(new[] { "run", "--headless" }, Headless.StripEnrollment(new[] { "run", "--headless", "--token", "secret" }));
+    }
+
+    [Fact]
+    public void PickToken_prefers_flag_then_env()
+    {
+        var none = new Dictionary<string, string>();
+        Assert.Equal("env", Iceghost.Runner.Program.PickToken(none, "env"));
+        Assert.Equal("flag", Iceghost.Runner.Program.PickToken(new Dictionary<string, string> { ["--token"] = "flag" }, "env"));
+        Assert.Null(Iceghost.Runner.Program.PickToken(none, ""));
+        Assert.Null(Iceghost.Runner.Program.PickToken(none, null));
+    }
+
+    [Fact]
     public void Foreground_flag_is_valueless()
     {
         var f = Iceghost.Runner.Program.ParseFlags(new[] { "--foreground", "--headless", "--state-dir", "d" });

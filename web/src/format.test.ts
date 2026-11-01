@@ -77,10 +77,10 @@ it('guessOs', () => {
   expect(guessOs('')).toBe('linux')
 })
 it('enrollCommand', () => {
-  const t = 'run --server http://h --token T'
-  expect(enrollCommand('windows', 'http://h', 'T')).toBe(`.\\iceghost-runner.exe ${t}`)
-  expect(enrollCommand('macos', 'http://h', 'T')).toBe(`xattr -d com.apple.quarantine iceghost-runner; chmod +x iceghost-runner && ./iceghost-runner ${t}`)
-  expect(enrollCommand('linux', 'http://h', 'T')).toBe(`chmod +x iceghost-runner && ./iceghost-runner ${t}`)
+  const t = 'run --server http://h'
+  expect(enrollCommand('windows', 'http://h', 'T')).toBe(`$env:ICEGHOST_TOKEN='T'; .\\iceghost-runner.exe ${t}`)
+  expect(enrollCommand('macos', 'http://h', 'T')).toBe(`xattr -d com.apple.quarantine iceghost-runner; chmod +x iceghost-runner && ICEGHOST_TOKEN=T ./iceghost-runner ${t}`)
+  expect(enrollCommand('linux', 'http://h', 'T')).toBe(`chmod +x iceghost-runner && ICEGHOST_TOKEN=T ./iceghost-runner ${t}`)
 })
 
 describe('sessionLabel', () => {
