@@ -18,6 +18,7 @@ const paths: Record<string, string[]> = {
   back: ['M15 6l-6 6 6 6'],
   plus: ['M12 5v14', 'M5 12h14'],
   bell: ['M6 16v-5a6 6 0 0112 0v5l2 2H4z', 'M10 21h4'],
+  edit: ['M4 20h4L19 9l-4-4L4 16z', 'M13 7l4 4'],
   image: ['M3 5h18v14H3z', 'M3 16l5-5 4 4 3-3 6 6', 'M8.5 9v.01'],
 }
 defineProps<{ name: string }>()

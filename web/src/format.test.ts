@@ -66,6 +66,7 @@ it('matches and summary', () => {
   expect(matches(r, 'claude code')).toBe(true)
   expect(matches(r, 'nope')).toBe(false)
   expect(matches({ ...r, title: null }, 'fix')).toBe(false)
+  expect(matches({ ...r, name: 'Payroll' }, 'payroll')).toBe(true)
   expect(summary([r, r, { state: 'done' }])).toEqual({ needsInput: 0, stalled: 0, working: 2, done: 1 })
 })
 
@@ -86,6 +87,7 @@ it('enrollCommand', () => {
 describe('sessionLabel', () => {
   it('prefixes folder to title', () => expect(sessionLabel({ title: 'Fix', cwd: '/a/proj' })).toBe('proj · Fix'))
   it('null title', () => expect(sessionLabel({ title: null, cwd: '/a/proj' })).toBe('proj'))
+  it('custom name wins', () => expect(sessionLabel({ name: 'Mine', title: 'Fix', cwd: '/a/proj' })).toBe('Mine'))
   it('empty title', () => expect(sessionLabel({ title: '', cwd: '/a/proj/' })).toBe('proj'))
 })
 

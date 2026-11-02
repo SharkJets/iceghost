@@ -18,6 +18,7 @@ public static class UiEndpoints
 {
     public sealed record LoginBody(string? Password);
     public sealed record MessageBody(string? Text, string? Image = null, string? ImageType = null);
+    public sealed record NameBody(string? Name);
     public sealed record MachineBody(string? Name);
 
     const int MaxImage = 3 * 1024 * 1024;
@@ -85,6 +86,13 @@ public static class UiEndpoints
                     ? Json(new { id }, 202) : Results.NotFound();
             }
             catch (MachineOfflineException e) { return Json(new { error = e.Message }, 409); }
+        });
+
+        api.MapPut("/sessions/{machineId:long}/{sessionId}/name", (IceStore s, long machineId, string sessionId, NameBody? body) =>
+        {
+            var name = body?.Name?.Trim();
+            if (name is { Length: > 100 }) return Results.BadRequest();
+            return s.RenameSession(machineId, sessionId, name) ? Results.NoContent() : Results.NotFound();
         });
 
         api.MapPost("/sessions/{machineId:long}/{sessionId}/commands/{id:long}/dismiss", (IceStore s, long machineId, string sessionId, long id) =>

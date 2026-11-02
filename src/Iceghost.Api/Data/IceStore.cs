@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Iceghost.Api.Data;
 
-public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null);
+public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null, string? Name = null);
 public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null, bool HasImage = false);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
 public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen, string? RunnerVersion = null);
@@ -32,6 +32,7 @@ public sealed class IceStore
             db.Database.ExecuteSqlRaw("ALTER TABLE Sessions ADD COLUMN LastAction TEXT NULL");
         if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Machines')").ToList().Contains("RunnerVersion"))
             db.Database.ExecuteSqlRaw("ALTER TABLE Machines ADD COLUMN RunnerVersion TEXT NULL");
+        db.Database.ExecuteSqlRaw("""CREATE TABLE IF NOT EXISTS "SessionNames" ("MachineId" INTEGER NOT NULL, "SessionId" TEXT NOT NULL, "Name" TEXT NOT NULL, CONSTRAINT "PK_SessionNames" PRIMARY KEY ("MachineId", "SessionId"))""");
     }
 
     IceDb Db() => new(_opts);
@@ -88,8 +89,8 @@ public sealed class IceStore
 
     static string? Cap(string? a) => a is { Length: > 140 } ? a[..139] + "…" : a;
 
-    static SessionRow ToRow(SessionEntity s, string machine, int pending) =>
-        new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending, Cap(s.LastAction));
+    static SessionRow ToRow(SessionEntity s, string machine, int pending, string? name) =>
+        new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending, Cap(s.LastAction), name);
 
     public IReadOnlyList<SessionRow> ListSessions(DateTimeOffset now)
     {
@@ -99,8 +100,9 @@ public sealed class IceStore
         var pend = db.Commands.Where(c => c.Status == "queued" || c.Status == "delivered" || c.Status == "running")
             .GroupBy(c => new { c.MachineId, c.SessionId }).Select(g => new { g.Key.MachineId, g.Key.SessionId, N = g.Count() })
             .ToList().ToDictionary(x => (x.MachineId, x.SessionId), x => x.N);
+        var custom = db.SessionNames.ToDictionary(n => (n.MachineId, n.SessionId), n => n.Name);
         return db.Sessions.AsEnumerable()
-            .Select(s => ToRow(s, names.GetValueOrDefault(s.MachineId, ""), pend.GetValueOrDefault((s.MachineId, s.SessionId))))
+            .Select(s => ToRow(s, names.GetValueOrDefault(s.MachineId, ""), pend.GetValueOrDefault((s.MachineId, s.SessionId)), custom.GetValueOrDefault((s.MachineId, s.SessionId))))
             .OrderByDescending(r => r.LastActivity).ToList();
     }
 
@@ -114,7 +116,21 @@ public sealed class IceStore
         var cmds = db.Commands.Where(c => c.MachineId == machineId && c.SessionId == sessionId).OrderBy(c => c.Id).ToList();
         var pending = cmds.Count(c => c.Status is "queued" or "delivered" or "running");
         var tail = JsonSerializer.Deserialize<List<TranscriptEntry>>(s.TailJson, IceJson.Options) ?? [];
-        return new(ToRow(s, name, pending), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt, c.StartedAt, c.HeartbeatAt, c.ImageType != null)).ToList());
+        return new(ToRow(s, name, pending, db.SessionNames.Find(machineId, sessionId)?.Name), tail, cmds.Select(c => new CommandRow(c.Id, c.Text, c.Status, c.Output, c.CreatedAt, c.StartedAt, c.HeartbeatAt, c.ImageType != null)).ToList());
+    }
+
+    /// <summary>Sets the user's name for a session (blank clears it). False if the session doesn't exist.</summary>
+    public bool RenameSession(long machineId, string sessionId, string? name)
+    {
+        using var db = Db();
+        if (db.Sessions.Find(machineId, sessionId) is null) return false;
+        var n = db.SessionNames.Find(machineId, sessionId);
+        name = name?.Trim();
+        if (string.IsNullOrEmpty(name)) { if (n is not null) db.SessionNames.Remove(n); }
+        else if (n is null) db.SessionNames.Add(new SessionNameEntity { MachineId = machineId, SessionId = sessionId, Name = name });
+        else n.Name = name;
+        db.SaveChanges();
+        return true;
     }
 
     public long? Enqueue(long machineId, string sessionId, string text, DateTimeOffset now, byte[]? image = null, string? imageType = null)
@@ -200,6 +216,7 @@ public sealed class IceStore
         // explicit deletes too, so cascade never depends on the FK pragma
         db.Sessions.Where(s => s.MachineId == id).ExecuteDelete();
         db.Commands.Where(c => c.MachineId == id).ExecuteDelete();
+        db.SessionNames.Where(n => n.MachineId == id).ExecuteDelete();
         return db.Machines.Where(m => m.Id == id).ExecuteDelete() > 0;
     }
 }

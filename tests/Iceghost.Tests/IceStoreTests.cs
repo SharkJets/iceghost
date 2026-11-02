@@ -404,6 +404,52 @@ public sealed class IceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Session_name_survives_reports_and_clears()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1"), Sess("s2")), T);
+        Assert.True(s.RenameSession(id, "s1", "  Mine "));
+        Assert.True(s.RenameSession(id, "s1", "Mine2"));
+        s.ApplyReport(id, Full(Sess("s1")), T.AddMinutes(1));
+        Assert.Equal("Mine2", s.ListSessions(T).Single().Name);
+        Assert.Equal("Mine2", s.GetSession(id, "s1", T)!.Session.Name);
+        Assert.True(s.RenameSession(id, "s1", "  "));
+        Assert.Null(s.GetSession(id, "s1", T)!.Session.Name);
+        Assert.False(s.RenameSession(id, "nope", "x"));
+    }
+
+    [Fact]
+    public void DeleteMachine_removes_session_names()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        s.ApplyReport(id, Full(Sess("s1")), T);
+        s.RenameSession(id, "s1", "Mine");
+        Assert.True(s.DeleteMachine(id));
+        using var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}");
+        c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM SessionNames";
+        Assert.Equal(0L, cmd.ExecuteScalar());
+    }
+
+    [Fact]
+    public void Existing_db_gets_session_names_table()
+    {
+        var s = Store(); var (id, _) = s.CreateMachine("d");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DROP TABLE SessionNames";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var s2 = Store();
+        s2.ApplyReport(id, Full(Sess("s1")), T);
+        Assert.True(s2.RenameSession(id, "s1", "Mine"));
+    }
+
+    [Fact]
     public void Existing_db_gets_image_columns()
     {
         var s = Store(); var (id, _) = s.CreateMachine("d");

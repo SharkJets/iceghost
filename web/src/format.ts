@@ -86,10 +86,10 @@ export const states: Record<string, { label: string; hint: string; icon: string;
 }
 export const stateOf = (s: string) => states[s] ?? { ...states.done, label: s, hint: '' }
 
-type Row = { title: string | null; cwd: string; machine: string; runtime: string; state: string }
+type Row = { name?: string | null; title: string | null; cwd: string; machine: string; runtime: string; state: string }
 export const matches = (r: Row, q: string) => {
   const n = q.trim().toLowerCase()
-  return !n || [r.title, r.cwd, r.machine, agent(r.runtime).name].some(f => f?.toLowerCase().includes(n))
+  return !n || [r.name, r.title, r.cwd, r.machine, agent(r.runtime).name].some(f => f?.toLowerCase().includes(n))
 }
 export const summary = (rows: { state: string }[]) => {
   const c: Record<string, number> = { needsInput: 0, stalled: 0, working: 0, done: 0 }
@@ -97,4 +97,4 @@ export const summary = (rows: { state: string }[]) => {
   return c
 }
 
-export const sessionLabel = (r: { title?: string | null; cwd: string }) => r.title ? `${folder(r.cwd)} · ${r.title}` : folder(r.cwd)
+export const sessionLabel = (r: { name?: string | null; title?: string | null; cwd: string }) => r.name ? r.name : r.title ? `${folder(r.cwd)} · ${r.title}` : folder(r.cwd)

@@ -27,6 +27,13 @@ public sealed class SessionEntity
     public string? LastAction { get; set; }
 }
 
+public sealed class SessionNameEntity
+{
+    public long MachineId { get; set; }
+    public string SessionId { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
 public sealed class CommandEntity
 {
     public long Id { get; set; }
@@ -50,12 +57,14 @@ public sealed class IceDb(DbContextOptions<IceDb> options) : DbContext(options)
     public DbSet<MachineEntity> Machines => Set<MachineEntity>();
     public DbSet<SessionEntity> Sessions => Set<SessionEntity>();
     public DbSet<CommandEntity> Commands => Set<CommandEntity>();
+    public DbSet<SessionNameEntity> SessionNames => Set<SessionNameEntity>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<MachineEntity>().HasIndex(m => m.TokenHash).IsUnique();
         b.Entity<SessionEntity>().HasKey(s => new { s.MachineId, s.SessionId });
         b.Entity<SessionEntity>().HasOne<MachineEntity>().WithMany().HasForeignKey(s => s.MachineId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<SessionNameEntity>().HasKey(n => new { n.MachineId, n.SessionId }); // own table: ApplyReport rewrites Sessions
         b.Entity<CommandEntity>().HasOne<MachineEntity>().WithMany().HasForeignKey(c => c.MachineId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<CommandEntity>().HasIndex(c => new { c.MachineId, c.Status });
     }

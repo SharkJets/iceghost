@@ -73,6 +73,23 @@ public class UiEndpointsTests
     }
 
     [Fact]
+    public async Task Rename_session()
+    {
+        using var f = Make();
+        var store = f.Services.GetRequiredService<IceStore>();
+        var (id, _) = store.CreateMachine("desk");
+        var now = DateTimeOffset.UtcNow;
+        store.ApplyReport(id, new("h", "linux", [new(Runtime.Claude, "s1", "/p", "t", SessionState.Done, now, [])]), now);
+        var url = $"/api/sessions/{id}/s1/name";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await f.CreateClient().PutAsJsonAsync(url, new { name = "x" })).StatusCode);
+        var (c, _) = await LoggedIn(f);
+        Assert.Equal(HttpStatusCode.NoContent, (await c.PutAsJsonAsync(url, new { name = " Mine " })).StatusCode);
+        Assert.Equal("Mine", JsonDocument.Parse(await c.GetStringAsync($"/api/sessions/{id}/s1")).RootElement.GetProperty("session").GetProperty("name").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.PutAsJsonAsync(url, new { name = new string('a', 101) })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.PutAsJsonAsync($"/api/sessions/{id}/nope/name", new { name = "x" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Login_wrong_401()
     {
         using var f = Make();

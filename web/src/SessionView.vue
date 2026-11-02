@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { visibleCommands } from './outbox'
 import Icon from './Icon.vue'
 import { api, Unauthorized, type SessionDetail, type MachineRow } from './api'
@@ -71,6 +71,18 @@ const send = guard(async () => {
   finally { sending.value = false }
 })
 
+const editing = ref(false)
+const draft = ref('')
+const nameIn = ref<HTMLInputElement | null>(null)
+const edit = async () => { draft.value = d.value?.session.name ?? ''; editing.value = true; await nextTick(); nameIn.value?.focus() }
+const saveName = guard(async () => {
+  if (!editing.value) return
+  editing.value = false
+  err.value = ''
+  try { await api(url + '/name', 'PUT', { name: draft.value }); d.value = await api<SessionDetail>(url) }
+  catch (e) { if (e instanceof Unauthorized) emit('unauth'); else err.value = e instanceof Error && !/^\d+$/.test(e.message) ? e.message : 'Rename failed (up to 100 chars)' }
+})
+
 const dismiss = guard(async (id: number) => {
   err.value = ''
   try { await api(`${url}/commands/${id}/dismiss`, 'POST'); d.value = await api<SessionDetail>(url) }
@@ -83,7 +95,10 @@ const dismiss = guard(async (id: number) => {
   <p v-if="!d && loadErr" role="alert" class="text-bad">Could not load session.</p>
   <div v-if="d" class="space-y-4">
     <div class="space-y-2">
-      <h1 class="break-words text-2xl font-bold leading-tight">{{ d.session.title ?? folder(d.session.cwd) }}</h1>
+      <input v-if="editing" ref="nameIn" v-model="draft" type="text" maxlength="100" aria-label="Session name" :placeholder="d.session.title ?? folder(d.session.cwd)" class="min-h-11 w-full rounded-lg border border-edge bg-panel px-3 text-2xl font-bold text-ink"
+        @keydown.enter.prevent="saveName" @keydown.esc.prevent="editing = false" @blur="saveName" />
+      <h1 v-else class="flex items-start gap-1 text-2xl font-bold leading-tight"><span class="min-w-0 break-words self-center">{{ d.session.name ?? d.session.title ?? folder(d.session.cwd) }}</span>
+        <button type="button" class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center text-link" title="Rename session" aria-label="Rename session" @click="edit"><Icon name="edit" /></button></h1>
       <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
         <span class="inline-flex items-center gap-1.5 font-bold" :class="stateOf(d.session.state).text"><span aria-hidden="true" :class="stateOf(d.session.state).dot"></span>{{ stateOf(d.session.state).label }}</span>
         <span aria-hidden="true">·</span><span>{{ d.session.machine }}</span><span v-if="offline" class="rounded border border-edge px-1.5 text-xs text-stall">offline</span>
