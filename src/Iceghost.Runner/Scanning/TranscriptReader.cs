@@ -7,7 +7,7 @@ using Iceghost.Contracts;
 /// <summary>Parses transcript JSONL lines (claude, codex, pi) into a snapshot. Never throws on bad lines.</summary>
 public static class TranscriptReader
 {
-    const int TailMax = 40, TextMax = 1000, LatestMax = 16000, BudgetMax = 40000, TitleMax = 80;
+    const int TailMessages = 40, TextMax = 1000, ToolMax = 300, LatestMax = 16000, BudgetMax = 60000, TitleMax = 80;
 
     /// <summary>User-role text the harness injects, not the human speaking.</summary>
     static readonly string[] Synthetic = ["<command-name>", "<command-message>", "<local-command-stdout>",
@@ -24,14 +24,19 @@ public static class TranscriptReader
         public bool Ended;
         public readonly HashSet<string> Pending = [];
         public readonly List<TranscriptEntry> Tail = [];
+        int msgs; // user+assistant entries in Tail; tool entries ride along uncounted
 
         public void Add(string role, string? text, DateTimeOffset at)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             if (role == "assistant") LastAction = Action(text) ?? LastAction;
             if (role == "user") FirstUser ??= text.Length <= TitleMax ? text : text[..(TitleMax - 1)] + "…";
-            Tail.Add(new(role, text, at));
-            if (Tail.Count > TailMax) Tail.RemoveAt(0);
+            Tail.Add(new(role, role == "tool" ? Cut(text, ToolMax) : text, at));
+            if (role == "tool" || ++msgs <= TailMessages) return;
+            var n = Tail.FindIndex(e => e.Role != "tool") + 1; // oldest message and the tools before it
+            while (n < Tail.Count && Tail[n].Role == "tool") n++; // tools before the new oldest message
+            Tail.RemoveRange(0, n);
+            msgs--;
         }
     }
 
@@ -236,8 +241,8 @@ public static class TranscriptReader
         _ => null,
     };
 
-    /// <summary>Newest assistant entry up to LatestMax, the rest up to TextMax; then oldest entries drop until the total fits BudgetMax (the newest reply stays).
-    /// Report bound: 50 sessions x 40 000 chars = ~2 M chars, under the server's 8 MiB request limit.</summary>
+    /// <summary>Newest assistant entry up to LatestMax, the rest up to TextMax (tools ToolMax, cut on Add); then oldest entries drop until the total fits BudgetMax (the newest reply stays).
+    /// Report bound: 50 sessions x 60 000 chars = ~3 M chars, under the server's 8 MiB request limit.</summary>
     static List<TranscriptEntry> Capped(List<TranscriptEntry> tail)
     {
         var latest = tail.FindLastIndex(e => e.Role == "assistant");

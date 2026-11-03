@@ -166,14 +166,37 @@ public class TranscriptReaderTests
         Assert.Equal("m59", s.Tail[^1].Text);
     }
 
+    static string CR(string text) =>
+        $$$"""{"type":"user","sessionId":"s1","cwd":"C:\\p","timestamp":"2026-10-25T10:00:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"{{{text}}}"}]}}""";
+
+    [Fact]
+    public void Tail_counts_messages_not_tools()
+    {
+        var lines = Enumerable.Range(0, 50).SelectMany(i => new[] { i % 2 == 0 ? CU("m" + i, "2026-10-25T10:00:00Z") : CA("m" + i, "2026-10-25T10:00:00Z"), CR("r" + i), CR("s" + i), CR("t" + i) }).ToList();
+        var s = TranscriptReader.Read(Runtime.Claude, lines)!;
+        Assert.Equal(40, s.Tail.Count(e => e.Role != "tool"));
+        Assert.Equal(160, s.Tail.Count); // tools after each kept message stay
+        Assert.Equal("m10", s.Tail[0].Text); // no tools before the first kept message
+        Assert.Equal("t49", s.Tail[^1].Text);
+        Assert.Equal(["tool", "tool", "tool"], s.Tail.Skip(1).Take(3).Select(e => e.Role));
+    }
+
+    [Fact]
+    public void Tool_entries_capped_at_300()
+    {
+        var s = TranscriptReader.Read(Runtime.Claude, [CU("go", "2026-10-25T10:00:00Z"), CR(new string('x', 5000))])!;
+        Assert.Equal(300, s.Tail[1].Text.Length);
+        Assert.EndsWith("…", s.Tail[1].Text);
+    }
+
     [Fact]
     public void Tail_budget_drops_oldest()
     {
-        var lines = Enumerable.Range(0, 40).Select(i => CU(new string((char)('a' + i % 26), 1000), "2026-10-25T10:00:00Z")).ToList();
+        var lines = Enumerable.Range(0, 39).SelectMany(i => new[] { CU(new string((char)('a' + i % 26), 1000), "2026-10-25T10:00:00Z"), CR(new string('r', 300)), CR(new string('r', 300)), CR(new string('r', 300)) }).ToList();
         lines.Add(CA(new string('z', 16000), "2026-10-25T10:01:00Z"));
         var s = TranscriptReader.Read(Runtime.Claude, lines)!;
-        Assert.True(s.Tail.Sum(e => e.Text.Length) <= 40000);
-        Assert.True(s.Tail.Count < 40);
+        Assert.True(s.Tail.Sum(e => e.Text.Length) <= 60000);
+        Assert.True(s.Tail.Count < 39 * 4 + 1);
         Assert.Equal(16000, s.Tail[^1].Text.Length);
     }
 

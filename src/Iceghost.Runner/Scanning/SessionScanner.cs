@@ -60,7 +60,7 @@ public sealed class SessionScanner(ScanRoots roots, Func<Runtime, IReadOnlyList<
 {
     const int MaxFiles = 50;
     static readonly TimeSpan MaxAge = TimeSpan.FromDays(14);
-    const long BigFile = 4 << 20, TailBytes = 1 << 20;
+    const long BigFile = 4 << 20, TailBytes = 4 << 20;
     const int HeadLines = 50;
     readonly Dictionary<string, (DateTime Mtime, long Len, SessionSnapshot? Snap)> cache = new();
 
