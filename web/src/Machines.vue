@@ -11,6 +11,7 @@ const name = ref('')
 const token = ref<string | null>(null)
 const err = ref('')
 const adding = ref(false)
+const telegram = ref<boolean | null>(null)
 const now = ticker()
 const version = import.meta.env.VITE_VERSION || 'dev'
 const oses: [RunnerOs, string][] = [['windows', 'Windows'], ['macos', 'macOS'], ['linux', 'Linux']]
@@ -22,6 +23,7 @@ async function load() {
   catch (e) { if (e instanceof Unauthorized) emit('unauth'); throw e }
 }
 usePoll(load, 10000)
+api<{ telegram: boolean }>('/api/config').then(c => telegram.value = c.telegram).catch(() => {})
 
 function fail(e: unknown, msg: string) { if (e instanceof Unauthorized) emit('unauth'); else err.value = msg }
 
@@ -38,6 +40,13 @@ async function remove(m: MachineRow) {
   err.value = ''
   try { await api(`/api/machines/${m.id}`, 'DELETE'); await load() }
   catch (e) { fail(e, 'Delete failed') }
+}
+async function notify(m: MachineRow, k: 'notifyNeedsInput' | 'notifyDone') {
+  err.value = ''
+  const b = { needsInput: !!m.notifyNeedsInput, done: !!m.notifyDone }
+  if (k === 'notifyDone') b.done = !b.done; else b.needsInput = !b.needsInput
+  try { await api(`/api/machines/${m.id}/notify`, 'PUT', b); await load() }
+  catch (e) { fail(e, 'Update failed') }
 }
 const copy = () => navigator.clipboard?.writeText(cmd())
 </script>
@@ -64,6 +73,7 @@ const copy = () => navigator.clipboard?.writeText(cmd())
       <button class="mt-2 min-h-11 rounded bg-raised px-3" @click="copy">Copy</button>
       <p class="mt-2 text-xs text-muted">Download the runner for your OS from the <a href="https://github.com/SharkJets/iceghost/releases/latest" target="_blank" rel="noopener" class="text-link underline">latest release</a>. The token is only needed on the first run; it is saved, so later just run <code class="font-mono">iceghost-runner{{ sel === 'windows' ? '.exe' : '' }} run</code> (add <code class="font-mono">--headless</code> for no window, see the README).</p>
     </div>
+    <p v-if="telegram === false" class="text-xs text-muted">Telegram notifications: set ICEGHOST_TELEGRAM_KEY and ICEGHOST_TELEGRAM_ID on the server.</p>
     <div class="overflow-hidden rounded-xl border border-line bg-panel text-sm">
       <div class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_5rem] gap-3 border-b border-line px-4 py-2 text-xs text-muted md:grid">
         <span>Hostname</span><span>OS</span><span>Runner</span><span>Status</span><span>Last Seen</span><span class="text-right">Actions</span>
@@ -77,6 +87,10 @@ const copy = () => navigator.clipboard?.writeText(cmd())
         <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" :class="isOffline(m.lastSeen, now) ? 'bg-bad' : 'bg-ok'"></span><span :class="isOffline(m.lastSeen, now) ? 'text-bad' : 'text-ok'">{{ isOffline(m.lastSeen, now) ? 'Offline' : 'Online' }}</span></span>
         <span :class="isOffline(m.lastSeen, now) ? 'text-bad' : 'text-ink'">{{ m.lastSeen ? ago(m.lastSeen, now) : 'never seen' }}</span>
         <span class="text-right"><button :aria-label="`Delete machine ${m.name}`" class="inline-flex min-h-11 items-center rounded border border-edge px-2 py-0.5 text-xs text-bad hover:bg-raised" @click="remove(m)">Delete</button></span>
+        <div v-if="telegram" class="col-span-2 flex flex-wrap items-center gap-2 md:col-span-full">
+          <span class="text-xs text-muted">Telegram</span>
+          <button v-for="[k, label] in ([['notifyNeedsInput', 'Needs input'], ['notifyDone', 'Done']] as const)" :key="k" :aria-pressed="!!m[k]" class="min-h-11 rounded px-3 text-xs" :class="m[k] ? 'bg-brand text-white' : 'bg-raised'" @click="notify(m, k)">{{ label }}</button>
+        </div>
       </div>
     </div>
   </div>

@@ -16,6 +16,9 @@ builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 8 * 1024 * 1
 var dataDir = Environment.GetEnvironmentVariable("ICEGHOST_DATA") ?? "./data";
 Directory.CreateDirectory(dataDir);
 builder.Services.AddSingleton(new IceStore(Path.Combine(dataDir, "iceghost.db")));
+builder.Services.AddHttpClient("telegram").RemoveAllLoggers(); // the default logger prints request URLs, which carry the bot token
+builder.Services.AddSingleton<Iceghost.Api.TelegramNotifier>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Iceghost.Api.TelegramNotifier>());
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")))
     .SetApplicationName("iceghost");

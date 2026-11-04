@@ -119,6 +119,9 @@ Server environment variables. Real environment variables override `.env`; `.env`
 | `ICEGHOST_PORT` | `8080` | Docker Compose only: host port to publish. |
 | `ASPNETCORE_URLS` | `http://localhost:5000` in `.env.example` | Listen address when run from source. The image listens on 8080. |
 | `ICEGHOST_ENV_FILE` | unset | Explicit path of the env file to load. |
+| `ICEGHOST_TELEGRAM_KEY` | unset | Telegram bot token for notifications (see Telegram notifications). |
+| `ICEGHOST_TELEGRAM_ID` | unset | Telegram chat id that receives them. |
+| `ICEGHOST_PUBLIC_URL` | unset | Public base URL of this server (no trailing slash); adds a link to each Telegram message. |
 
 The desktop app reads `ICEGHOST_URL` (see Desktop app).
 
@@ -266,6 +269,17 @@ The manifest installs it as a standalone app. It needs HTTPS to be installable a
 ## Notifications
 
 The bell in the header turns on browser notifications for sessions that need you. They fire only while the app is open but not in use (background tab, minimized or unfocused window), and need HTTPS or localhost. Closed tabs are not notified. Turning the bell on shows a test notification; if it doesn't appear, the OS is blocking the browser (Windows: Settings → System → Notifications → enable the browser; macOS: System Settings → Notifications). Do Not Disturb / Focus also hides them.
+
+## Telegram notifications
+
+Get a Telegram message when a session changes to **Needs you** or **Done**, per machine.
+
+1. Create a bot with @BotFather; its token is `ICEGHOST_TELEGRAM_KEY`.
+2. Get your chat id and set it as `ICEGHOST_TELEGRAM_ID`: message your bot, then open `https://api.telegram.org/bot<token>/getUpdates` and read `chat.id`, or ask @userinfobot.
+3. Optional: set `ICEGHOST_PUBLIC_URL` (for example `https://example.com`) so each message links to the session.
+4. Restart the server, open the Machines page and switch on **Needs input** and/or **Done** for each machine.
+
+Only state changes notify; a session first seen already in that state, and a restarted server, send nothing. Keep the token secret: it is never logged or shown by the server.
 
 ## Security
 

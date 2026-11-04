@@ -20,6 +20,7 @@ public static class UiEndpoints
     public sealed record MessageBody(string? Text, string? Image = null, string? ImageType = null);
     public sealed record NameBody(string? Name);
     public sealed record MachineBody(string? Name);
+    public sealed record NotifyBody(bool NeedsInput, bool Done);
 
     const int MaxImage = 3 * 1024 * 1024;
 
@@ -106,6 +107,9 @@ public static class UiEndpoints
             var (id, token) = s.CreateMachine(name);
             return Json(new { id, token }, 201);
         });
+        api.MapPut("/machines/{id:long}/notify", (IceStore s, long id, NotifyBody? body) =>
+            body is null ? Results.BadRequest() : s.SetNotify(id, body.NeedsInput, body.Done) ? Results.NoContent() : Results.NotFound());
+        api.MapGet("/config", (TelegramNotifier tg) => Json(new { telegram = tg.Enabled }));
         api.MapDelete("/machines/{id:long}", (IceStore s, long id) =>
             s.DeleteMachine(id) ? Results.NoContent() : Results.NotFound());
 

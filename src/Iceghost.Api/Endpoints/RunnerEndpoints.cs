@@ -28,13 +28,13 @@ public static class RunnerEndpoints
             return await next(ctx);
         });
 
-        g.MapPost("/report", async (HttpContext http, IceStore store) =>
+        g.MapPost("/report", async (HttpContext http, IceStore store, TelegramNotifier tg) =>
         {
             RunnerReport? r;
             try { r = await http.Request.ReadFromJsonAsync<RunnerReport>(IceJson.Options, http.RequestAborted); }
             catch (System.Text.Json.JsonException) { r = null; }
             if (r is null) return Results.BadRequest();
-            store.ApplyReport((long)http.Items[MachineKey]!, r, time.GetUtcNow());
+            tg.Enqueue(store.ApplyReport((long)http.Items[MachineKey]!, r, time.GetUtcNow()));
             return Results.NoContent();
         });
 

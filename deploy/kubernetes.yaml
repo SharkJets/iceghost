@@ -55,6 +55,18 @@ spec:
             secretKeyRef:
               name: iceghost-secrets
               key: admin-password
+        - name: ICEGHOST_TELEGRAM_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iceghost-secrets
+              key: telegram-key
+              optional: true
+        - name: ICEGHOST_TELEGRAM_ID
+          valueFrom:
+            secretKeyRef:
+              name: iceghost-secrets
+              key: telegram-id
+              optional: true
         ports:
         - containerPort: 8080
         readinessProbe:

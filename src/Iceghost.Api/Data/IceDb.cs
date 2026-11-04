@@ -12,6 +12,8 @@ public sealed class MachineEntity
     public string? Os { get; set; }
     public DateTimeOffset? LastSeen { get; set; }
     public string? RunnerVersion { get; set; }
+    public bool NotifyNeedsInput { get; set; }
+    public bool NotifyDone { get; set; }
 }
 
 public sealed class SessionEntity

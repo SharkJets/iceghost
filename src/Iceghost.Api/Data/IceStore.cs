@@ -9,7 +9,9 @@ namespace Iceghost.Api.Data;
 public sealed record SessionRow(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Title, SessionState State, DateTimeOffset LastActivity, int PendingCommands, string? LastAction = null, string? Name = null);
 public sealed record CommandRow(long Id, string Text, string Status, string? Output, DateTimeOffset CreatedAt, DateTimeOffset? StartedAt = null, DateTimeOffset? HeartbeatAt = null, bool HasImage = false);
 public sealed record SessionDetail(SessionRow Session, IReadOnlyList<TranscriptEntry> Tail, IReadOnlyList<CommandRow> Commands);
-public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen, string? RunnerVersion = null);
+public sealed record MachineRow(long Id, string Name, string? Hostname, string? Os, DateTimeOffset? LastSeen, string? RunnerVersion = null, bool NotifyNeedsInput = false, bool NotifyDone = false);
+/// <summary>A session changed into a state the machine's Telegram flags ask about. Reply = first 300 chars of the last assistant text.</summary>
+public sealed record SessionEvent(long MachineId, string Machine, Runtime Runtime, string SessionId, string Cwd, string? Name, SessionState State, string Reply);
 public sealed class MachineOfflineException(string message) : Exception(message);
 
 public sealed class IceStore
@@ -32,6 +34,9 @@ public sealed class IceStore
             db.Database.ExecuteSqlRaw("ALTER TABLE Sessions ADD COLUMN LastAction TEXT NULL");
         if (!db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Machines')").ToList().Contains("RunnerVersion"))
             db.Database.ExecuteSqlRaw("ALTER TABLE Machines ADD COLUMN RunnerVersion TEXT NULL");
+        var mcols = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Machines')").ToList();
+        foreach (var col in new[] { "NotifyNeedsInput", "NotifyDone" })
+            if (!mcols.Contains(col)) db.Database.ExecuteSqlRaw($"ALTER TABLE Machines ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0");
         db.Database.ExecuteSqlRaw("""CREATE TABLE IF NOT EXISTS "SessionNames" ("MachineId" INTEGER NOT NULL, "SessionId" TEXT NOT NULL, "Name" TEXT NOT NULL, CONSTRAINT "PK_SessionNames" PRIMARY KEY ("MachineId", "SessionId"))""");
     }
 
@@ -59,24 +64,40 @@ public sealed class IceStore
         return db.Machines.Where(m => m.TokenHash == h).Select(m => (long?)m.Id).FirstOrDefault();
     }
 
-    public void ApplyReport(long machineId, RunnerReport r, DateTimeOffset now)
+    /// <summary>Sessions whose state changed (old row existed) into NeedsInput / Done that the flags ask about.</summary>
+    public static IEnumerable<SessionReport> Transitions(IReadOnlyDictionary<string, SessionState> old, IEnumerable<SessionReport> now, bool needsInput, bool done) =>
+        now.Where(s => old.TryGetValue(s.SessionId, out var was) && was != s.State
+            && (s.State == SessionState.NeedsInput ? needsInput : s.State == SessionState.Done && done));
+
+    /// <summary>Stores a runner report. Returns the Telegram-worthy state changes (full reports only).</summary>
+    public IReadOnlyList<SessionEvent> ApplyReport(long machineId, RunnerReport r, DateTimeOffset now)
     {
         using var db = Db();
         var m = db.Machines.Find(machineId);
-        if (m is null) return;
+        if (m is null) return [];
+        var events = new List<SessionEvent>();
         m.Hostname = r.Hostname;
         m.Os = r.Os;
         m.LastSeen = now;
         if (r.RunnerVersion is not null) m.RunnerVersion = r.RunnerVersion; // old runners omit it: keep the last known
         if (r.Sessions is not null)
         {
+            var old = db.Sessions.Where(s => s.MachineId == machineId).ToDictionary(s => s.SessionId, s => s.State);
             db.Sessions.RemoveRange(db.Sessions.Where(s => s.MachineId == machineId));
             // a re-enrolled PC leaves a stale twin (same hostname) whose sessions can never be served: drop them, keep the machine row
             var ghosts = db.Machines.AsEnumerable()
                 .Where(o => o.Id != machineId && string.Equals(o.Hostname, r.Hostname, StringComparison.OrdinalIgnoreCase) && o.Hostname is not null && !(o.LastSeen > now - OnlineWindow))
                 .Select(o => o.Id).ToList();
             if (ghosts.Count > 0) db.Sessions.RemoveRange(db.Sessions.Where(s => ghosts.Contains(s.MachineId)));
-            foreach (var s in r.Sessions.GroupBy(s => s.SessionId).Select(g => g.OrderByDescending(x => x.LastActivity).First())) // duplicate files per id: latest activity wins, ties the first
+            var fresh = r.Sessions.GroupBy(s => s.SessionId).Select(g => g.OrderByDescending(x => x.LastActivity).First()).ToList(); // duplicate files per id: latest activity wins, ties the first
+            if (m.NotifyNeedsInput || m.NotifyDone)
+            {
+                var names = db.SessionNames.Where(n => n.MachineId == machineId).ToDictionary(n => n.SessionId, n => n.Name);
+                events.AddRange(Transitions(old, fresh, m.NotifyNeedsInput, m.NotifyDone).Select(s => new SessionEvent(
+                    machineId, m.Name, s.Runtime, s.SessionId, s.Cwd, names.GetValueOrDefault(s.SessionId) ?? s.Title, s.State,
+                    Cap(s.Tail?.LastOrDefault(t => t.Role == "assistant")?.Text, 300) ?? "")));
+            }
+            foreach (var s in fresh)
                 db.Sessions.Add(new SessionEntity
                 {
                     MachineId = machineId, SessionId = s.SessionId, Runtime = s.Runtime, Cwd = s.Cwd, Title = s.Title,
@@ -85,9 +106,10 @@ public sealed class IceStore
                 });
         }
         db.SaveChanges();
+        return events;
     }
 
-    static string? Cap(string? a) => a is { Length: > 140 } ? a[..139] + "…" : a;
+    static string? Cap(string? a, int n = 140) => a is not null && a.Length > n ? a[..(n - 1)] + "…" : a;
 
     static SessionRow ToRow(SessionEntity s, string machine, int pending, string? name) =>
         new(s.MachineId, machine, s.Runtime, s.SessionId, s.Cwd, s.Title, s.State, s.LastActivity, pending, Cap(s.LastAction), name);
@@ -207,7 +229,13 @@ public sealed class IceStore
     public IReadOnlyList<MachineRow> ListMachines()
     {
         using var db = Db();
-        return db.Machines.OrderBy(m => m.Id).AsEnumerable().Select(m => new MachineRow(m.Id, m.Name, m.Hostname, m.Os, m.LastSeen, m.RunnerVersion)).ToList();
+        return db.Machines.OrderBy(m => m.Id).AsEnumerable().Select(m => new MachineRow(m.Id, m.Name, m.Hostname, m.Os, m.LastSeen, m.RunnerVersion, m.NotifyNeedsInput, m.NotifyDone)).ToList();
+    }
+
+    public bool SetNotify(long id, bool needsInput, bool done)
+    {
+        using var db = Db();
+        return db.Machines.Where(m => m.Id == id).ExecuteUpdate(u => u.SetProperty(m => m.NotifyNeedsInput, needsInput).SetProperty(m => m.NotifyDone, done)) == 1;
     }
 
     public bool DeleteMachine(long id)
