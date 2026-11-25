@@ -277,10 +277,10 @@ public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeo
     public static Step NextStep(bool failed, string output, bool native) =>
         !failed || !IsBusy(output) ? Step.Done : native ? Step.Queue : Step.Busy;
 
-    // --message=<text> (not a separate arg) so text starting with '-' is not read as a flag
-    public static IReadOnlyList<string> BuildQueueArguments(string sessionId, string text, string? permission = null) =>
-        ["queue", "--thread", sessionId, "--message=" + text,
-         .. permission is not null && Array.IndexOf(Modes, permission) >= 0 ? new[] { "-s", permission } : []];
+    // --message=<text> (not a separate arg) so text starting with '-' is not read as a flag.
+    // No sandbox flag: codex queue rejects --sandbox; the queued turn runs under the live thread's sandbox.
+    public static IReadOnlyList<string> BuildQueueArguments(string sessionId, string text) =>
+        ["queue", "--thread", sessionId, "--message=" + text];
 
     /// <summary>The real binary next to an npm shim (filesystem only); null if not found.</summary>
     public static string? NativeExe(string shimPath)
@@ -301,7 +301,7 @@ public sealed class CodexAdapter(IReadOnlyList<string> extraArgs, TimeSpan timeo
             case Step.Busy: return new(false, BusyMessage);
             case Step.Queue:
                 if (cmd.Text.Length > MaxQueueText) return new(false, BusyMessage);
-                var q = await Exec(cmd.Cwd, resolved, BuildQueueArguments(cmd.SessionId, cmd.Text, cmd.Permission), "", ct);
+                var q = await Exec(cmd.Cwd, resolved, BuildQueueArguments(cmd.SessionId, cmd.Text), "", ct);
                 return q.Code == 0 ? new(true, QueuedMessage) : new(false, $"codex queue failed: {Redact(Tail(q.Err.Trim().Length > 0 ? q.Err : q.Out))}");
             default: return null;
         }

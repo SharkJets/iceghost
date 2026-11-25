@@ -342,8 +342,6 @@ public sealed class RuntimeAdapterTests
     public void Codex_queue_arguments()
     {
         Assert.Equal(["queue", "--thread", "t1", "--message=-hi there"], CodexAdapter.BuildQueueArguments("t1", "-hi there"));
-        Assert.Equal(["queue", "--thread", "t1", "--message=hi", "-s", "read-only"], CodexAdapter.BuildQueueArguments("t1", "hi", "read-only"));
-        Assert.Equal(["queue", "--thread", "t1", "--message=hi"], CodexAdapter.BuildQueueArguments("t1", "hi", "bogus"));
     }
 
     [Fact]
